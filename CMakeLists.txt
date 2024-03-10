@@ -181,8 +181,11 @@ if(WIN32)
 
   target_compile_definitions(PortAudio PRIVATE _CRT_SECURE_NO_WARNINGS)
 
+  set(PA_ASIO_HOSTAPI_DIR OFF)
+  option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
   option(PA_USE_ASIO "Enable support for ASIO" OFF)
-  if(PA_USE_ASIO)
+  if(PA_USE_CWASIO)
+    set(PA_USE_ASIO OFF)
     find_package(ASIO)
     # Automatically download the ASIO SDK ZIP if it is not found. The ASIO SDK license
     # allows for downloading it from Steinberg and using it without charge, but it is
@@ -213,17 +216,58 @@ if(WIN32)
         )
       endif()
     endif()
+    set(PA_ASIO_HOSTAPI_DIR cwasio)
+  else()
+    if(PA_USE_ASIO)
+      find_package(ASIO)
+      # Automatically download the ASIO SDK ZIP if it is not found. The ASIO SDK license
+      # allows for downloading it from Steinberg and using it without charge, but it is
+      # not allowed to be redistributed.
+      #
+      # The file(ARCHIVE_EXTRACT) command needed to extract the ZIP archive was added in
+      # CMake 3.18, so do not bother downloading the ZIP archive for older CMake versions.
+      # Instead, FindASIO.cmake directs the user to manually extract the ZIP file to
+      # CMAKE_PREFIX_PATH or CMAKE_CURRENT_BINARY_DIR.
+      if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18 AND NOT TARGET ASIO::host)
+        if(NOT ASIO_SDK_ZIP_PATH)
+          set(ASIO_SDK_ZIP_PATH "${CMAKE_CURRENT_BINARY_DIR}/asiosdk.zip")
+        endif()
+        message(STATUS "Downloading ASIO SDK... ${ASIO_SDK_ZIP_PATH}")
+        file(DOWNLOAD "https://www.steinberg.net/asiosdk"
+          "${ASIO_SDK_ZIP_PATH}"
+          STATUS ASIO_DOWNLOAD_STATUS
+          SHOW_PROGRESS
+        )
+        if("${ASIO_DOWNLOAD_STATUS}" EQUAL 0)
+          find_package(ASIO)
+        else()
+          list(GET "${ASIO_DOWNLOAD_STATUS}" 1 DOWNLOAD_ERROR)
+          message(FATAL_ERROR "Error downloading ASIO SDK: ${DOWNLOAD_ERROR} "
+            "Reconfigure CMake with -DPA_USE_ASIO=OFF to build without ASIO. "
+            "Alternatively, download the ZIP from https://www.steinberg.net/asiosdk "
+            "and put it in ${CMAKE_PREFIX_PATH} or ${CMAKE_CURRENT_BINARY_DIR}"
+          )
+        endif()
+      endif()
+      set(PA_ASIO_HOSTAPI_DIR asio)
+    endif()
   endif()
-  if(PA_USE_ASIO AND TARGET ASIO::host)
+  if(PA_ASIO_HOSTAPI_DIR AND TARGET ASIO::host)
     target_link_libraries(PortAudio PRIVATE "$<BUILD_INTERFACE:ASIO::host>")
     set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_asio.h)
     target_compile_definitions(PortAudio PUBLIC PA_USE_ASIO=1)
     set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_ASIO=1")
-    target_sources(PortAudio PRIVATE
-      src/hostapi/asio/pa_asio.cpp
-      src/hostapi/asio/iasiothiscallresolver.cpp
-      src/hostapi/asio/iasiothiscallresolver.h
-    )
+    if(PA_USE_ASIO)
+      target_sources(PortAudio PRIVATE
+        src/hostapi/${PA_ASIO_HOSTAPI_DIR}/pa_asio.cpp
+        src/hostapi/${PA_ASIO_HOSTAPI_DIR}/iasiothiscallresolver.cpp
+        src/hostapi/${PA_ASIO_HOSTAPI_DIR}/iasiothiscallresolver.h
+      )
+    else()
+      target_sources(PortAudio PRIVATE
+        src/hostapi/${PA_ASIO_HOSTAPI_DIR}/pa_asio.cpp
+      )
+    endif()
   else()
     set(DEF_EXCLUDE_ASIO_SYMBOLS ";")
   endif()
