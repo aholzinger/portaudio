@@ -104,34 +104,9 @@
 #include "pa_win_coinitialize.h"
 #include "pa_win_util.h"
 
-/* This version of pa_asio.cpp is currently only targeted at Win32,
-   It would require a few tweaks to work with pre-OS X Macintosh.
-   To make configuration easier, we define WIN32 here to make sure
-   that the ASIO SDK knows this is Win32.
-*/
-#ifndef WIN32
-#define WIN32
-#endif
-
 #include "asiosys.h"
 #include "asio.h"
 #include "asiodrivers.h"
-
-/*
-#if MAC
-#include <Devices.h>
-#include <Timer.h>
-#include <Math64.h>
-#else
-*/
-/*
-#include <math.h>
-#include <windows.h>
-#include <mmsystem.h>
-*/
-/*
-#endif
-*/
 
 
 /* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
@@ -152,11 +127,6 @@
  all dependence on it.
 */
 extern AsioDrivers* asioDrivers;
-
-
-/* We are trying to be compatible with CARBON but this has not been thoroughly tested. */
-/* not tested at all since new V19 code was introduced. */
-#define CARBON_COMPATIBLE  (0)
 
 
 /* prototypes for functions declared in this file */
@@ -581,11 +551,6 @@ static void ConvertFloat32ToFloat64( void *buffer, long shift, long count )
     while( count-- )
         *out-- = *in--;
 }
-
-#ifdef MAC
-#define PA_MSB_IS_NATIVE_
-#undef PA_LSB_IS_NATIVE_
-#endif
 
 #ifdef WINDOWS
 #undef PA_MSB_IS_NATIVE_
@@ -1236,11 +1201,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 
     /* driverCount is the number of installed drivers - not necessarily
         the number of installed physical devices. */
-    #if MAC
-        driverCount = asioHostApi->asioDrivers->getNumFragments();
-    #elif WINDOWS
-        driverCount = asioHostApi->asioDrivers->asioGetNumDev();
-    #endif
+    driverCount = asioHostApi->asioDrivers->asioGetNumDev();
 
     if( driverCount > 0 )
     {
