@@ -230,34 +230,36 @@ if(WIN32)
 
   option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
   if(PA_USE_CWASIO)
-    find_package(ASIO)
-    # Automatically download the ASIO SDK ZIP if it is not found. The ASIO SDK license
-    # allows for downloading it from Steinberg and using it without charge, but it is
-    # not allowed to be redistributed.
-    #
-    # The file(ARCHIVE_EXTRACT) command needed to extract the ZIP archive was added in
-    # CMake 3.18, so do not bother downloading the ZIP archive for older CMake versions.
-    # Instead, FindASIO.cmake directs the user to manually extract the ZIP file to
-    # CMAKE_PREFIX_PATH or CMAKE_CURRENT_BINARY_DIR.
-    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18 AND NOT TARGET ASIO::host)
-      if(NOT ASIO_SDK_ZIP_PATH)
-        set(ASIO_SDK_ZIP_PATH "${CMAKE_CURRENT_BINARY_DIR}/asiosdk.zip")
-      endif()
-      message(STATUS "Downloading ASIO SDK... ${ASIO_SDK_ZIP_PATH}")
-      file(DOWNLOAD "https://www.steinberg.net/asiosdk"
-        "${ASIO_SDK_ZIP_PATH}"
-        STATUS ASIO_DOWNLOAD_STATUS
-        SHOW_PROGRESS
-      )
-      if("${ASIO_DOWNLOAD_STATUS}" EQUAL 0)
-        find_package(ASIO)
-      else()
-        list(GET "${ASIO_DOWNLOAD_STATUS}" 1 DOWNLOAD_ERROR)
-        message(FATAL_ERROR "Error downloading ASIO SDK: ${DOWNLOAD_ERROR} "
-          "Reconfigure CMake with -DPA_USE_ASIO=OFF to build without ASIO. "
-          "Alternatively, download the ZIP from https://www.steinberg.net/asiosdk "
-          "and put it in ${CMAKE_PREFIX_PATH} or ${CMAKE_CURRENT_BINARY_DIR}"
+    if(NOT PA_USE_ASIO)
+      find_package(ASIO)
+      # Automatically download the ASIO SDK ZIP if it is not found. The ASIO SDK license
+      # allows for downloading it from Steinberg and using it without charge, but it is
+      # not allowed to be redistributed.
+      #
+      # The file(ARCHIVE_EXTRACT) command needed to extract the ZIP archive was added in
+      # CMake 3.18, so do not bother downloading the ZIP archive for older CMake versions.
+      # Instead, FindASIO.cmake directs the user to manually extract the ZIP file to
+      # CMAKE_PREFIX_PATH or CMAKE_CURRENT_BINARY_DIR.
+      if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18 AND NOT TARGET ASIO::host)
+        if(NOT ASIO_SDK_ZIP_PATH)
+          set(ASIO_SDK_ZIP_PATH "${CMAKE_CURRENT_BINARY_DIR}/asiosdk.zip")
+        endif()
+        message(STATUS "Downloading ASIO SDK... ${ASIO_SDK_ZIP_PATH}")
+        file(DOWNLOAD "https://www.steinberg.net/asiosdk"
+          "${ASIO_SDK_ZIP_PATH}"
+          STATUS ASIO_DOWNLOAD_STATUS
+          SHOW_PROGRESS
         )
+        if("${ASIO_DOWNLOAD_STATUS}" EQUAL 0)
+          find_package(ASIO)
+        else()
+          list(GET "${ASIO_DOWNLOAD_STATUS}" 1 DOWNLOAD_ERROR)
+          message(FATAL_ERROR "Error downloading ASIO SDK: ${DOWNLOAD_ERROR} "
+            "Reconfigure CMake with -DPA_USE_ASIO=OFF to build without ASIO. "
+            "Alternatively, download the ZIP from https://www.steinberg.net/asiosdk "
+            "and put it in ${CMAKE_PREFIX_PATH} or ${CMAKE_CURRENT_BINARY_DIR}"
+          )
+        endif()
       endif()
     endif()
   endif()

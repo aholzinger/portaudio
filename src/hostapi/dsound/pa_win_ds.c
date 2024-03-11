@@ -3248,3 +3248,43 @@ static signed long GetStreamWriteAvailable( PaStream* s )
 
     return 0;
 }
+
+static PaError GetDirectSoundDeviceInfoByDeviceIndex (PaWinDsDeviceInfo** info, PaDeviceIndex device)
+{
+    PaError ret;
+
+    PaDeviceIndex index;
+    PaUtilHostApiRepresentation* pApi;
+
+    if ((ret = PaUtil_GetHostApiRepresentation (&pApi, paDirectSound)) != paNoError)
+        return ret;
+
+    if (pApi == NULL)
+        return paNotInitialized;
+
+    // Get device index
+    if ((ret = PaUtil_DeviceIndexToHostApiDeviceIndex (&index, device, pApi)) != paNoError)
+        return ret;
+
+    // Validate index
+    if ((UINT32) index >= pApi->info.deviceCount)
+        return paInvalidDevice;
+
+    (*info) = (PaWinDsDeviceInfo*)pApi->deviceInfos[index];
+
+    return paNoError;
+}
+
+PaError PaWinDS_GetDeviceGUID (PaDeviceIndex device, GUID** pGUID)
+{
+    PaError ret;
+
+    PaWinDsDeviceInfo* deviceInfo;
+
+    if ((ret = GetDirectSoundDeviceInfoByDeviceIndex (&deviceInfo, device)) != paNoError)
+        return ret;
+
+    *pGUID = deviceInfo->lpGUID;
+
+    return ret;
+}

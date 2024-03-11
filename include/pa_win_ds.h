@@ -86,6 +86,7 @@ typedef struct PaWinDirectSoundStreamInfo{
 
 }PaWinDirectSoundStreamInfo;
 
+PaError PaWinDS_GetDeviceGUID(PaDeviceIndex device, GUID * pGUID);
 
 
 #ifdef __cplusplus
