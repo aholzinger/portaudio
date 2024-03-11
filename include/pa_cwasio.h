@@ -107,7 +107,7 @@ PaError PaCwAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
         const char** channelName );
 
 
-/** Set the sample rate of an open paASIO stream.
+/** Set the sample rate of an open paCwASIO stream.
 
  @param stream The stream to operate on.
  @param sampleRate The new sample rate.
