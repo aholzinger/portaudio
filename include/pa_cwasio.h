@@ -1,5 +1,5 @@
-#ifndef PA_ASIO_H
-#define PA_ASIO_H
+#ifndef PA_CWASIO_H
+#define PA_CWASIO_H
 /*
  * $Id$
  * PortAudio Portable Real-Time Audio Library
@@ -41,7 +41,7 @@
 
 /** @file
  @ingroup public_header
- @brief ASIO-specific PortAudio API extension header file.
+ @brief cwASIO-specific PortAudio API extension header file.
 */
 
 #include "portaudio.h"
@@ -64,18 +64,18 @@ extern "C"
 
  @see ASIOGetBufferSize in the ASIO SDK.
 
- @note: this function used to be called PaAsio_GetAvailableLatencyValues. There is a
- #define that maps PaAsio_GetAvailableLatencyValues to this function for backwards compatibility.
+ @note: this function used to be called PaCwAsio_GetAvailableLatencyValues. There is a
+ #define that maps PaCwAsio_GetAvailableLatencyValues to this function for backwards compatibility.
 */
-PaError PaAsio_GetAvailableBufferSizes( PaDeviceIndex device,
+PaError PaCwAsio_GetAvailableBufferSizes( PaDeviceIndex device,
         long *minBufferSizeFrames, long *maxBufferSizeFrames, long *preferredBufferSizeFrames, long *granularity );
 
 
-/** Backwards compatibility alias for PaAsio_GetAvailableBufferSizes
+/** Backwards compatibility alias for PaCwAsio_GetAvailableBufferSizes
 
- @see PaAsio_GetAvailableBufferSizes
+ @see PaCwAsio_GetAvailableBufferSizes
 */
-#define PaAsio_GetAvailableLatencyValues PaAsio_GetAvailableBufferSizes
+#define PaCwAsio_GetAvailableLatencyValues PaCwAsio_GetAvailableBufferSizes
 
 
 /** Display the ASIO control panel for the specified device.
@@ -84,7 +84,7 @@ PaError PaAsio_GetAvailableBufferSizes( PaDeviceIndex device,
   @param systemSpecific On Windows, the calling application's main window handle,
   on Macintosh this value should be zero.
 */
-PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
+PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
 
 
 
@@ -94,7 +94,7 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific );
 
  The string will be no longer than 32 characters including the null terminator.
 */
-PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
+PaError PaCwAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
         const char** channelName );
 
 
@@ -103,7 +103,7 @@ PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
 
  The string will be no longer than 32 characters including the null terminator.
 */
-PaError PaAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
+PaError PaCwAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
         const char** channelName );
 
 
@@ -117,20 +117,20 @@ PaError PaAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
 
  Returns paIncompatibleStreamHostApi if stream is not a paASIO stream.
 */
-PaError PaAsio_SetStreamSampleRate( PaStream* stream, double sampleRate );
+PaError PaCwAsio_SetStreamSampleRate( PaStream* stream, double sampleRate );
 
 
-#define paAsioUseChannelSelectors      (0x01)
+#define paCwAsioUseChannelSelectors      (0x01)
 
-typedef struct PaAsioStreamInfo{
-    unsigned long size;             /**< sizeof(PaAsioStreamInfo) */
-    PaHostApiTypeId hostApiType;    /**< paASIO */
+typedef struct PaCwAsioStreamInfo{
+    unsigned long size;             /**< sizeof(PaCwAsioStreamInfo) */
+    PaHostApiTypeId hostApiType;    /**< paCwASIO */
     unsigned long version;          /**< 1 */
 
     unsigned long flags;
 
     /* Support for opening only specific channels of an ASIO device.
-        If the paAsioUseChannelSelectors flag is set, channelSelectors is a
+        If the paCwAsioUseChannelSelectors flag is set, channelSelectors is a
         pointer to an array of integers specifying the device channels to use.
         When used, the length of the channelSelectors array must match the
         corresponding channelCount parameter to Pa_OpenStream() otherwise a
@@ -140,11 +140,11 @@ typedef struct PaAsioStreamInfo{
         result.
     */
     int *channelSelectors;
-}PaAsioStreamInfo;
+}PaCwAsioStreamInfo;
 
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
-#endif /* PA_ASIO_H */
+#endif /* PA_CWASIO_H */
