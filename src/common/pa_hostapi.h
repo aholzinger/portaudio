@@ -160,6 +160,13 @@ are defaulted to 1.
 #define PA_USE_ASIHPI 1
 #endif
 
+#ifndef PA_USE_CWASIO
+#define PA_USE_CWASIO 0
+#elif (PA_USE_CWASIO != 0) && (PA_USE_CWASIO != 1)
+#undef PA_USE_CWASIO
+#define PA_USE_CWASIO 1
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {

@@ -64,6 +64,7 @@ PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex
 PaError PaWinWdm_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaWasapi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaJack_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaCwAsio_Initialize(PaUtilHostApiRepresentation** hostApi, PaHostApiIndex index);
 
 #ifdef __cplusplus
 }
@@ -98,7 +99,11 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 #endif
 
 #if PA_USE_SKELETON
-        PaSkeleton_Initialize, /* just for testing. last in list so it isn't marked as default. */
+        PaSkeleton_Initialize,
+#endif
+
+#if PA_USE_CWASIO
+        PaCwAsio_Initialize, /* just for testing. last in list so it isn't marked as default. */
 #endif
 
         0   /* NULL terminated array */

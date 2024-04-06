@@ -335,7 +335,7 @@ static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type)
     }
 }
 
-void AsioSampleTypeLOG(ASIOSampleType type)
+void CwAsioSampleTypeLOG(ASIOSampleType type)
 {
     switch (type) {
         case ASIOSTInt16MSB:  PA_DEBUG(("ASIOSTInt16MSB\n"));  break;
@@ -1118,8 +1118,8 @@ error_unload:
 
 /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
 typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
-IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
-//FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
+static IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
+//static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
 
 PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
@@ -1837,7 +1837,7 @@ static PaError ValidateAsioSpecificStreamInfo(
             return paIncompatibleHostApiSpecificStreamInfo;
         }
 
-        if( streamInfo->flags & paAsioUseChannelSelectors )
+        if( streamInfo->flags & paCwAsioUseChannelSelectors )
         {
             *channelSelectors = streamInfo->channelSelectors;
 
@@ -1965,7 +1965,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         MessageBoxA(NULL, "Waiting for debugger...", "PortAudio ASIO", MB_OK);
     #endif
     PaError result = paNoError;
-    PaAsioHostApiRepresentation *cwAsioHostApi = (PaAsioHostApiRepresentation*)hostApi;
+    PaCwAsioHostApiRepresentation *cwAsioHostApi = (PaCwAsioHostApiRepresentation*)hostApi;
     PaAsioStream *stream = 0;
     PaCwAsioStreamInfo *inputStreamInfo, *outputStreamInfo;
     unsigned long framesPerHostBuffer;
@@ -2030,12 +2030,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         asioDeviceIndex = inputParameters->device;
 
-        PaAsioDeviceInfo *asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
+        PaCwAsioDeviceInfo *cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
 
         /* validate hostApiSpecificStreamInfo */
         inputStreamInfo = (PaCwAsioStreamInfo*)inputParameters->hostApiSpecificStreamInfo;
         result = ValidateAsioSpecificStreamInfo( inputParameters, inputStreamInfo,
-            asioDeviceInfo->commonDeviceInfo.maxInputChannels,
+            cwAsioDeviceInfo->commonDeviceInfo.maxInputChannels,
             &inputChannelSelectors
         );
         if( result != paNoError ) return result;
@@ -2060,12 +2060,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         asioDeviceIndex = outputParameters->device;
 
-        PaAsioDeviceInfo *asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
+        PaCwAsioDeviceInfo * cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
 
         /* validate hostApiSpecificStreamInfo */
         outputStreamInfo = (PaCwAsioStreamInfo*)outputParameters->hostApiSpecificStreamInfo;
         result = ValidateAsioSpecificStreamInfo( outputParameters, outputStreamInfo,
-            asioDeviceInfo->commonDeviceInfo.maxOutputChannels,
+            cwAsioDeviceInfo->commonDeviceInfo.maxOutputChannels,
             &outputChannelSelectors
         );
         if( result != paNoError ) return result;
@@ -2144,7 +2144,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( stream->completedBuffersPlayedEvent == NULL )
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+        PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
         PA_DEBUG(("OpenStream ERROR6\n"));
         goto error;
     }
@@ -2285,7 +2285,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         PA_DEBUG(("OpenStream ERROR9\n"));
         goto error;
     }
@@ -2309,7 +2309,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( asioError != ASE_OK )
         {
             result = paUnanticipatedHostError;
-            PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+            PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
             PA_DEBUG(("OpenStream ERROR11\n"));
             goto error;
         }
@@ -2368,7 +2368,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         ASIOSampleType inputType = stream->asioChannelInfos[0].type;
 
         PA_DEBUG(("ASIO Input  type:%d",inputType));
-        AsioSampleTypeLOG(inputType);
+        CwAsioSampleTypeLOG(inputType);
         hostInputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( inputType );
 
         SelectAsioToPaConverter( inputType, &stream->inputBufferConverter, &stream->inputShift );
@@ -2389,7 +2389,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         ASIOSampleType outputType = stream->asioChannelInfos[inputChannelCount].type;
 
         PA_DEBUG(("ASIO Output type:%d",outputType));
-        AsioSampleTypeLOG(outputType);
+        CwAsioSampleTypeLOG(outputType);
         hostOutputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( outputType );
 
         SelectPaToAsioConverter( outputType, &stream->outputBufferConverter, &stream->outputShift );
@@ -2484,7 +2484,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( stream->blockingState->readFramesReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
-                PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
                 PA_DEBUG(("ERROR! Blocking i/o \"read frames ready\" event creation failed in OpenStream()\n"));
                 goto error;
             }
@@ -2571,7 +2571,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             if( stream->blockingState->writeBuffersReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
-                PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
                 PA_DEBUG(("ERROR! Blocking i/o \"write buffers ready\" event creation failed in OpenStream()\n"));
                 goto error;
             }
@@ -2920,7 +2920,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
         return 0L;
 
     // protect against reentrancy
-    if( PaAsio_AtomicIncrement(&theAsioStream->reenterCount) )
+    if( PaCwAsio_AtomicIncrement(&theAsioStream->reenterCount) )
     {
         theAsioStream->reenterError++;
         //DBUG(("bufferSwitchTimeInfo : reentrancy detection = %d\n", asioDriverInfo.reenterError));
@@ -3135,7 +3135,7 @@ previousTime = paTimeInfo.currentTime;
         }
 
         ++buffersDone;
-    }while( PaAsio_AtomicDecrement(&theAsioStream->reenterCount) >= 0 );
+    }while( PaCwAsio_AtomicDecrement(&theAsioStream->reenterCount) >= 0 );
 
     return 0L;
 }
@@ -3269,7 +3269,7 @@ static PaError StartStream( PaStream *s )
     if( ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+        PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
     }
 
 
@@ -3286,7 +3286,7 @@ static PaError StartStream( PaStream *s )
             if( ResetEvent( blockingState->readFramesReadyEvent ) == 0 )
             {
                 result = paUnanticipatedHostError;
-                PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
             }
 
             /* Flush blocking i/o ring buffer. */
@@ -3301,7 +3301,7 @@ static PaError StartStream( PaStream *s )
             if( ResetEvent( blockingState->writeBuffersReadyEvent ) == 0 )
             {
                 result = paUnanticipatedHostError;
-                PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
             }
 
             /* Flush blocking i/o ring buffer. */
@@ -3339,7 +3339,7 @@ static PaError StartStream( PaStream *s )
             stream->isActive = 0;
 
             result = paUnanticipatedHostError;
-            PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+            PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         }
     }
 
@@ -3390,7 +3390,7 @@ static PaError StopStream( PaStream *s )
             {
                 PA_DEBUG(("WaitForSingleObject() failed in StopStream()\n"));
                 result = paUnanticipatedHostError;
-                PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
             }
             else if( waitResult == WAIT_TIMEOUT )
             {
@@ -3424,7 +3424,7 @@ static PaError StopStream( PaStream *s )
     else
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
     }
 
     stream->isStopped = 1;
@@ -3455,7 +3455,7 @@ static PaError AbortStream( PaStream *s )
     else
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
     }
 
     stream->isStopped = 1;
@@ -3599,7 +3599,7 @@ static PaError ReadStream( PaStream      *s     ,
                 {
                     PA_DEBUG(("WaitForSingleObject() failed in ReadStream()\n"));
                     result = paUnanticipatedHostError;
-                    PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
                     return result;
                 }
                 else if( waitResult == WAIT_TIMEOUT )
@@ -3771,7 +3771,7 @@ static PaError WriteStream( PaStream      *s     ,
                 {
                     PA_DEBUG(("WaitForSingleObject() failed in WriteStream()\n"));
                     result = paUnanticipatedHostError;
-                    PA_ASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
                     return result;
                 }
                 else if( waitResult == WAIT_TIMEOUT )
@@ -3992,8 +3992,8 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     ASIODriverInfo asioDriverInfo;
     ASIOError asioError;
     int asioIsInitialized = 0;
-    PaAsioHostApiRepresentation *cwAsioHostApi;
-    PaAsioDeviceInfo *asioDeviceInfo;
+    PaCwAsioHostApiRepresentation *cwAsioHostApi;
+    PaCwAsioDeviceInfo *cwAsioDeviceInfo;
     PaWinUtilComInitializationResult comInitializationResult;
 
     /* initialize COM again here, we might be in another thread */
@@ -4017,16 +4017,16 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
         done safely while a stream is open.
     */
 
-    cwAsioHostApi = (PaAsioHostApiRepresentation*)hostApi;
+    cwAsioHostApi = (PaCwAsioHostApiRepresentation*)hostApi;
     if( cwAsioHostApi->openAsioDeviceIndex != paNoDevice )
     {
         result = paDeviceUnavailable;
         goto error;
     }
 
-    asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+    cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
-    if( !cwAsioHostApi->asioDrivers->loadDriver( const_cast<char*>(asioDeviceInfo->commonDeviceInfo.name) ) )
+    if( !cwAsioHostApi->asioDrivers->loadDriver( const_cast<char*>(cwAsioDeviceInfo->commonDeviceInfo.name) ) )
     {
         result = paUnanticipatedHostError;
         goto error;
@@ -4040,7 +4040,7 @@ PaError PaAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
     else
@@ -4059,7 +4059,7 @@ PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n",   asioDriverInfo.errorMessage ));
     {
         PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
@@ -4069,7 +4069,7 @@ PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErr
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
-        PA_ASIO_SET_LAST_ASIO_ERROR( asioError );
+        PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         asioIsInitialized = 0;
         goto error;
     }
@@ -4096,7 +4096,7 @@ PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
     PaError result = paNoError;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-    PaAsioDeviceInfo *asioDeviceInfo;
+    PaCwAsioDeviceInfo *cwAsioDeviceInfo;
 
 
     result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
@@ -4107,14 +4107,14 @@ PaError PaAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
     if( result != paNoError )
         goto error;
 
-    asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+    cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
-    if( channelIndex < 0 || channelIndex >= asioDeviceInfo->commonDeviceInfo.maxInputChannels ){
+    if( channelIndex < 0 || channelIndex >= cwAsioDeviceInfo->commonDeviceInfo.maxInputChannels ){
         result = paInvalidChannelCount;
         goto error;
     }
 
-    *channelName = asioDeviceInfo->asioChannelInfos[channelIndex].name;
+    *channelName = cwAsioDeviceInfo->asioChannelInfos[channelIndex].name;
 
     return paNoError;
 
@@ -4129,7 +4129,7 @@ PaError PaAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
     PaError result = paNoError;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-    PaAsioDeviceInfo *asioDeviceInfo;
+    PaCwAsioDeviceInfo * cwAsioDeviceInfo;
 
 
     result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
@@ -4140,15 +4140,15 @@ PaError PaAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
     if( result != paNoError )
         goto error;
 
-    asioDeviceInfo = (PaAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
+    cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
 
-    if( channelIndex < 0 || channelIndex >= asioDeviceInfo->commonDeviceInfo.maxOutputChannels ){
+    if( channelIndex < 0 || channelIndex >= cwAsioDeviceInfo->commonDeviceInfo.maxOutputChannels ){
         result = paInvalidChannelCount;
         goto error;
     }
 
-    *channelName = asioDeviceInfo->asioChannelInfos[
-            asioDeviceInfo->commonDeviceInfo.maxInputChannels + channelIndex].name;
+    *channelName = cwAsioDeviceInfo->asioChannelInfos[
+        cwAsioDeviceInfo->commonDeviceInfo.maxInputChannels + channelIndex].name;
 
     return paNoError;
 
@@ -4166,7 +4166,7 @@ static PaError GetAsioStreamPointer( PaAsioStream **stream, PaStream *s )
 {
     PaError result;
     PaUtilHostApiRepresentation *hostApi;
-    PaAsioHostApiRepresentation *cwAsioHostApi;
+    PaCwAsioHostApiRepresentation *cwAsioHostApi;
 
     result = PaUtil_ValidateStreamPointer( s );
     if( result != paNoError )
@@ -4176,7 +4176,7 @@ static PaError GetAsioStreamPointer( PaAsioStream **stream, PaStream *s )
     if( result != paNoError )
         return result;
 
-    cwAsioHostApi = (PaAsioHostApiRepresentation*)hostApi;
+    cwAsioHostApi = (PaCwAsioHostApiRepresentation*)hostApi;
 
     if( PA_STREAM_REP( s )->streamInterface == &cwAsioHostApi->callbackStreamInterface
             || PA_STREAM_REP( s )->streamInterface == &cwAsioHostApi->blockingStreamInterface )

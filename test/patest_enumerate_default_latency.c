@@ -67,6 +67,10 @@ The columns in the table are as follows:
 #if PA_USE_ASIO
 #include "pa_asio.h"
 #endif
+
+#if PA_USE_CWASIO
+#include "pa_cwasio.h"
+#endif
 #endif
 
 int main(void);

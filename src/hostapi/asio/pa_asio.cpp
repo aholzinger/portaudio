@@ -1154,8 +1154,8 @@ error_unload:
 
 /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
 typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
-IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
-//FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
+static IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
+//static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
 
 PaError PaAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
