@@ -1962,7 +1962,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            void *userData )
 {
     #ifdef _DEBUG
-        MessageBoxA(NULL, "Waiting for debugger...", "PortAudio ASIO", MB_OK);
+        MessageBoxA(NULL, "Waiting for debugger...", "PortAudio cwASIO", MB_OK);
     #endif
     PaError result = paNoError;
     PaCwAsioHostApiRepresentation *cwAsioHostApi = (PaCwAsioHostApiRepresentation*)hostApi;
