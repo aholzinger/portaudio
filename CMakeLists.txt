@@ -1,5 +1,8 @@
-cmake_minimum_required(VERSION 3.8.0)
+cmake_minimum_required(VERSION 3.18.0)
 project(PortAudio VERSION 19.8)
+
+include(GenerateExportHeader)
+include(FetchContent)
 
 #
 # General PortAudio stuff
@@ -69,6 +72,8 @@ add_library(PortAudio
   src/common/pa_types.h
   src/common/pa_util.h
 )
+
+generate_export_header(PortAudio)
 
 include(GNUInstallDirs)
 
@@ -155,6 +160,31 @@ if(PA_USE_JACK)
   install(FILES cmake/modules/FindJACK.cmake DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/portaudio/modules")
 endif()
 
+option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
+if(PA_USE_CWASIO)
+  set(CWASIO_SHARED OFF)
+  set(PA_USE_CWASIO_REPO "https://github.com/s13n/cwASIO.git" CACHE STRING "cwASIO repository to use")
+  if(NOT PA_USE_CWASIO_TAG)
+      if($ENV{PA_USE_CWASIO_TAG})
+          set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
+      else()
+          set(PA_USE_CWASIO_TAG "9b7a3cbd5d6273973ec6da142e0bd878548caf28")   # set default tag, when neither cache nor environment variable found.
+      endif()
+  endif()
+
+  FetchContent_Declare(cwASIO_build
+      GIT_TAG         ${PA_USE_CWASIO_TAG}
+      GIT_REPOSITORY  ${PA_USE_CWASIO_REPO}
+  )
+  message(STATUS "Fetching cwASIO sources ${PA_USE_CWASIO_TAG} from git at ${PA_USE_CWASIO_REPO}")
+  FetchContent_GetProperties(cwASIO_build)
+  if(NOT cwasio_build_POPULATED)
+      FetchContent_Populate(cwASIO_build)
+      message(STATUS "Building cwASIO in ${cwasio_build_BINARY_DIR} from sources in ${cwasio_build_SOURCE_DIR}")
+      add_subdirectory(${cwasio_build_SOURCE_DIR} ${cwasio_build_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
+endif()
+
 if(WIN32)
   target_sources(PortAudio PRIVATE
     src/os/win/pa_win_coinitialize.c
@@ -228,53 +258,16 @@ if(WIN32)
     set(DEF_EXCLUDE_ASIO_SYMBOLS ";")
   endif()
 
-  option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
   if(PA_USE_CWASIO)
-    if(NOT PA_USE_ASIO)
-      find_package(ASIO)
-      # Automatically download the ASIO SDK ZIP if it is not found. The ASIO SDK license
-      # allows for downloading it from Steinberg and using it without charge, but it is
-      # not allowed to be redistributed.
-      #
-      # The file(ARCHIVE_EXTRACT) command needed to extract the ZIP archive was added in
-      # CMake 3.18, so do not bother downloading the ZIP archive for older CMake versions.
-      # Instead, FindASIO.cmake directs the user to manually extract the ZIP file to
-      # CMAKE_PREFIX_PATH or CMAKE_CURRENT_BINARY_DIR.
-      if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.18 AND NOT TARGET ASIO::host)
-        if(NOT ASIO_SDK_ZIP_PATH)
-          set(ASIO_SDK_ZIP_PATH "${CMAKE_CURRENT_BINARY_DIR}/asiosdk.zip")
-        endif()
-        message(STATUS "Downloading ASIO SDK... ${ASIO_SDK_ZIP_PATH}")
-        file(DOWNLOAD "https://www.steinberg.net/asiosdk"
-          "${ASIO_SDK_ZIP_PATH}"
-          STATUS ASIO_DOWNLOAD_STATUS
-          SHOW_PROGRESS
-        )
-        if("${ASIO_DOWNLOAD_STATUS}" EQUAL 0)
-          find_package(ASIO)
-        else()
-          list(GET "${ASIO_DOWNLOAD_STATUS}" 1 DOWNLOAD_ERROR)
-          message(FATAL_ERROR "Error downloading ASIO SDK: ${DOWNLOAD_ERROR} "
-            "Reconfigure CMake with -DPA_USE_ASIO=OFF to build without ASIO. "
-            "Alternatively, download the ZIP from https://www.steinberg.net/asiosdk "
-            "and put it in ${CMAKE_PREFIX_PATH} or ${CMAKE_CURRENT_BINARY_DIR}"
-          )
-        endif()
-      endif()
-    endif()
-  endif()
-  if(PA_USE_CWASIO AND TARGET ASIO::host)
-    target_link_libraries(PortAudio PRIVATE "$<BUILD_INTERFACE:ASIO::host>")
+    target_link_libraries(PortAudio PRIVATE cwASIO::lib)
     set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
     target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
     set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
     target_sources(PortAudio PRIVATE
       src/hostapi/cwasio/pa_cwasio.cpp
-      src/hostapi/cwasio/iasiothiscallresolver.cpp
-      src/hostapi/cwasio/iasiothiscallresolver.h
     )
   else()
-    set(DEF_EXCLUDE_ASIO_SYMBOLS ";")
+    set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
   endif()
 
   option(PA_USE_DS "Enable support for DirectSound" ON)
