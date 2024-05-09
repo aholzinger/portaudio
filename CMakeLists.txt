@@ -183,6 +183,27 @@ if(PA_USE_CWASIO)
       message(STATUS "Building cwASIO in ${cwasio_build_BINARY_DIR} from sources in ${cwasio_build_SOURCE_DIR}")
       add_subdirectory(${cwasio_build_SOURCE_DIR} ${cwasio_build_BINARY_DIR} EXCLUDE_FROM_ALL)
   endif()
+
+  set(PA_USE_PEVENTS_REPO "https://github.com/aholzinger/pevents.git" CACHE STRING "pevents repository to use")
+  if(NOT PA_USE_PEVENTS_TAG)
+      if($ENV{PA_USE_PEVENTS_TAG})
+          set(PA_USE_PEVENTS_TAG $ENV{PA_USE_PEVENTS_TAG})
+      else()
+          set(PA_USE_PEVENTS_TAG "6d64304f78cd1b03ab28e3b8e3385d624d93977f")   # set default tag, when neither cache nor environment variable found.
+      endif()
+  endif()
+
+  FetchContent_Declare(pevents_build
+      GIT_TAG         ${PA_USE_PEVENTS_TAG}
+      GIT_REPOSITORY  ${PA_USE_PEVENTS_REPO}
+  )
+  message(STATUS "Fetching pevents sources ${PA_USE_PEVENTS_TAG} from git at ${PA_USE_PEVENTS_REPO}")
+  FetchContent_GetProperties(pevents_build)
+  if(NOT pevents_build_POPULATED)
+      FetchContent_Populate(pevents_build)
+      message(STATUS "Building pevents in ${pevents_build_BINARY_DIR} from sources in ${pevents_build_SOURCE_DIR}")
+      add_subdirectory(${pevents_build_SOURCE_DIR} ${pevents_build_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
 endif()
 
 if(WIN32)
@@ -259,16 +280,13 @@ if(WIN32)
   endif()
 
   if(PA_USE_CWASIO)
-    target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib>)
+    target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib> $<BUILD_INTERFACE:pevents::lib>)
     set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
     target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
     set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
     target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.cpp)
-    target_sources(PortAudio PRIVATE
-      src/hostapi/cwasio/pa_cwasio.cpp
-      src/hostapi/cwasio/pevents.cpp
-      src/hostapi/cwasio/pevents.h
-    )
+    export(TARGETS cwASIO_lib FILE FindPevents.cmake)
+    export(TARGETS pevents_lib APPEND FILE FindPevents.cmake)
   else()
     set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
   endif()
@@ -446,16 +464,13 @@ elseif(UNIX)
     endif()
 
     if(PA_USE_CWASIO)
-      target_sources(PortAudio PRIVATE
-        src/hostapi/cwasio/pa_cwasio.cpp
-        src/hostapi/cwasio/pevents.cpp
-        src/hostapi/cwasio/pevents.h
-      )
+      target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.cpp)
       set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
       target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
       set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
-      target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib>)
-      export(TARGETS cwASIO_lib FILE FindCwASIO.cmake)
+      target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib> $<BUILD_INTERFACE:pevents::lib>)
+      export(TARGETS cwASIO_lib FILE FindPevents.cmake)
+      export(TARGETS pevents_lib APPEND FILE FindPevents.cmake)
     else()
       set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
     endif()

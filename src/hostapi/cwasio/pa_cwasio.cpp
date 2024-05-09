@@ -83,6 +83,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <new>
 #include <string>
 #include <vector>
@@ -90,8 +91,14 @@
 #include <stdio.h>
 //#include <values.h>
 
-#include <windows.h>
-#include <mmsystem.h>
+#if _WINDOWS
+    #include <windows.h>
+    #include <mmsystem.h>
+#else
+    typedef u_int32_t DWORD;
+#endif
+
+#include "pevents.h"
 
 #include "portaudio.h"
 #include "pa_cwasio.h"
@@ -104,13 +111,22 @@
 #include "pa_debugprint.h"
 #include "pa_ringbuffer.h"
 
-#include "pa_win_coinitialize.h"
-#include "pa_win_util.h"
+#if _WINDOWS
+    #include "pa_win_coinitialize.h"
+    #include "pa_win_util.h"
+#endif
 
-extern "C" {
-    #include <cwASIO.h>
-}
-#include <cwASIOIfc.hpp>
+#if _WINDOWS
+    extern "C" {
+        #include <cwASIO.h>
+    }
+    #include <cwASIOifc.hpp>
+#else
+    extern "C" {
+        #include <cwASIO.h>
+        #include <cwASIOifc.h>
+    }
+#endif
 
 /* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
 #if defined(WIN32)
@@ -176,7 +192,21 @@ static ASIOCallbacks asioCallbacks_ =
 
 static void PaCwAsio_SetLastSystemError( DWORD errorCode )
 {
+#if _WINDOWS
     PaWinUtil_SetLastSystemErrorInfo( paCwASIO, errorCode );
+#else
+    PaUtil_SetLastHostErrorInfo( paASIO, errorCode, "system error" );
+#endif
+}
+
+static DWORD getLastError()
+{
+#if _WINDOWS
+    return GetLastError();
+#else
+    DWORD result = DWORD(errno);
+    return result;
+#endif
 }
 
 #define PA_CWASIO_SET_LAST_SYSTEM_ERROR( errorCode ) \
@@ -251,7 +281,9 @@ typedef struct
 
     PaUtilAllocationGroup *allocations;
 
+#if _WINDOWS
     PaWinUtilComInitializationResult comInitializationResult;
+#endif
     CwAsioDriverInfos driverInfos;
     
     void *systemSpecific;
@@ -1181,10 +1213,15 @@ static long cwAsioGetNumDevs()
     return numDevs;
 }
 
-/* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
-typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
-static IsDebuggerPresentPtr IsDebuggerPresent_ = 0;
-//static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
+#if _WINDOWS
+    /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
+    typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
+    static IsDebuggerPresentPtr IsDebuggerPresent_ = nullptr;
+    //static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
+#else
+    typedef bool (*IsDebuggerPresentPtr)(void);
+    static IsDebuggerPresentPtr IsDebuggerPresent_ = nullptr;
+#endif
 
 PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
@@ -1203,6 +1240,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     /* NOTE: we depend on PaUtil_AllocateZeroInitializedMemory() ensuring that all
        fields are set to zero. especially cwAsioHostApi->allocations */
 
+#if _WINDOWS
     /*
         We initialize COM ourselves here and uninitialize it in Terminate().
         This should be the only COM initialization needed in this module.
@@ -1220,6 +1258,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     {
         goto error;
     }
+#endif
 
     cwAsioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !cwAsioHostApi->allocations )
@@ -1276,7 +1315,9 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             goto error;
         }
 
+#if _WINDOWS
         IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
+#endif
 
         for( i=0; i < driverCount; ++i )
         {
@@ -1374,7 +1415,9 @@ error:
             PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
         }
 
-        PaWinUtil_CoUninitialize(paCwASIO, &cwAsioHostApi->comInitializationResult );
+#if _WINDOWS
+        PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+#endif
 
         PaUtil_FreeMemory( cwAsioHostApi );
     }
@@ -1398,7 +1441,9 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
     }
 
+#if _WINDOWS
     PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+#endif
 
     PaUtil_FreeMemory( cwAsioHostApi );
 }
@@ -1558,8 +1603,8 @@ typedef struct PaAsioStreamBlockingState
     int writeBuffersRequestedFlag; /**< Flag to indicate that #WriteStream() has requested more output buffers to be available. */
     int readFramesRequestedFlag;   /**< Flag to indicate that #ReadStream() requires more input frames to be available. */
 
-    HANDLE writeBuffersReadyEvent; /**< Event to signal that requested output buffers are available. */
-    HANDLE readFramesReadyEvent;   /**< Event to signal that requested input frames are available. */
+    neosmart::neosmart_event_t writeBuffersReadyEvent; /**< Event to signal that requested output buffers are available. */
+    neosmart::neosmart_event_t readFramesReadyEvent;   /**< Event to signal that requested input frames are available. */
 
     void *writeRingBufferData; /**< The actual ring buffer memory, used by the output ring buffer. */
     void *readRingBufferData;  /**< The actual ring buffer memory, used by the input ring buffer. */
@@ -1614,7 +1659,7 @@ typedef struct PaAsioStream
 
     volatile bool stopProcessing;
     int stopPlayoutCount;
-    HANDLE completedBuffersPlayedEvent;
+    neosmart::neosmart_event_t completedBuffersPlayedEvent;
 
     bool streamFinishedCallbackCalled;
     int isStopped;
@@ -2175,11 +2220,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->blockingState = NULL; /* Blocking i/o not initialized, yet. */
 
 
-    stream->completedBuffersPlayedEvent = CreateEvent( NULL, TRUE, FALSE, NULL );
+    stream->completedBuffersPlayedEvent = neosmart::CreateEvent( true, false );
     if( stream->completedBuffersPlayedEvent == NULL )
     {
         result = paUnanticipatedHostError;
-        PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+        PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
         PA_DEBUG(("OpenStream ERROR6\n"));
         goto error;
     }
@@ -2515,11 +2560,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( inputChannelCount )
         {
             /* Create the callback sync-event. */
-            stream->blockingState->readFramesReadyEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+            stream->blockingState->readFramesReadyEvent = neosmart::CreateEvent( false, false );
             if( stream->blockingState->readFramesReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
-                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
                 PA_DEBUG(("ERROR! Blocking i/o \"read frames ready\" event creation failed in OpenStream()\n"));
                 goto error;
             }
@@ -2602,11 +2647,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* If output is requested. */
         if( outputChannelCount )
         {
-            stream->blockingState->writeBuffersReadyEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+            stream->blockingState->writeBuffersReadyEvent = neosmart::CreateEvent( false, false );
             if( stream->blockingState->writeBuffersReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
-                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
                 PA_DEBUG(("ERROR! Blocking i/o \"write buffers ready\" event creation failed in OpenStream()\n"));
                 goto error;
             }
@@ -2763,14 +2808,14 @@ error:
             if( stream->blockingState->writeStreamBuffer )
                 PaUtil_FreeMemory( stream->blockingState->writeStreamBuffer );
             if( blockingWriteBuffersReadyEventInitialized )
-                CloseHandle( stream->blockingState->writeBuffersReadyEvent );
+                neosmart::DestroyEvent( stream->blockingState->writeBuffersReadyEvent );
 
             if( stream->blockingState->readRingBufferData )
                 PaUtil_FreeMemory( stream->blockingState->readRingBufferData );
             if( stream->blockingState->readStreamBuffer )
                 PaUtil_FreeMemory( stream->blockingState->readStreamBuffer );
             if( blockingReadFramesReadyEventInitialized )
-                CloseHandle( stream->blockingState->readFramesReadyEvent );
+                neosmart::DestroyEvent( stream->blockingState->readFramesReadyEvent );
 
             PaUtil_FreeMemory( stream->blockingState );
         }
@@ -2779,7 +2824,7 @@ error:
             PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
 
         if( completedBuffersPlayedEventInited )
-            CloseHandle( stream->completedBuffersPlayedEvent );
+            neosmart::DestroyEvent( stream->completedBuffersPlayedEvent );
 
         if( stream->asioBufferInfos )
             PaUtil_FreeMemory( stream->asioBufferInfos );
@@ -2823,7 +2868,7 @@ static PaError CloseStream( PaStream* s )
 
     stream->cwAsioHostApi->openAsioDeviceIndex = paNoDevice;
 
-    CloseHandle( stream->completedBuffersPlayedEvent );
+    neosmart::DestroyEvent( stream->completedBuffersPlayedEvent );
 
     /* Using blocking i/o interface... */
     if( stream->blockingState )
@@ -2833,12 +2878,12 @@ static PaError CloseStream( PaStream* s )
         if( stream->inputChannelCount ) {
             PaUtil_FreeMemory( stream->blockingState->readRingBufferData );
             PaUtil_FreeMemory( stream->blockingState->readStreamBuffer  );
-            CloseHandle( stream->blockingState->readFramesReadyEvent );
+            neosmart::DestroyEvent( stream->blockingState->readFramesReadyEvent );
         }
         if( stream->outputChannelCount ) {
             PaUtil_FreeMemory( stream->blockingState->writeRingBufferData );
             PaUtil_FreeMemory( stream->blockingState->writeStreamBuffer );
-            CloseHandle( stream->blockingState->writeBuffersReadyEvent );
+            neosmart::DestroyEvent( stream->blockingState->writeBuffersReadyEvent );
         }
 
         PaUtil_FreeMemory( stream->blockingState );
@@ -2999,7 +3044,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                             if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
                                 theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
                             theAsioStream->streamFinishedCallbackCalled = true;
-                            SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                            neosmart::SetEvent( theAsioStream->completedBuffersPlayedEvent );
                         }
                     }
                 }
@@ -3152,7 +3197,7 @@ previousTime = paTimeInfo.currentTime;
                     if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
                         theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
                     theAsioStream->streamFinishedCallbackCalled = true;
-                    SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                    neosmart::SetEvent( theAsioStream->completedBuffersPlayedEvent );
                     theAsioStream->zeroOutput = true;
                 }
                 else /* paComplete or other non-zero value indicating complete */
@@ -3301,10 +3346,10 @@ static PaError StartStream( PaStream *s )
 
     stream->callbackFlags = 0;
 
-    if( ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
+    if( neosmart::ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
     {
         result = paUnanticipatedHostError;
-        PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+        PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
     }
 
 
@@ -3318,10 +3363,10 @@ static PaError StartStream( PaStream *s )
         if( stream->inputChannelCount )
         {
             /* Reset callback-ReadStream sync event. */
-            if( ResetEvent( blockingState->readFramesReadyEvent ) == 0 )
+            if( neosmart::ResetEvent( blockingState->readFramesReadyEvent ) == 0 )
             {
                 result = paUnanticipatedHostError;
-                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
             }
 
             /* Flush blocking i/o ring buffer. */
@@ -3333,10 +3378,10 @@ static PaError StartStream( PaStream *s )
         if( stream->outputChannelCount )
         {
             /* Reset callback-WriteStream sync event. */
-            if( ResetEvent( blockingState->writeBuffersReadyEvent ) == 0 )
+            if( neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ) == 0 )
             {
                 result = paUnanticipatedHostError;
-                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
             }
 
             /* Flush blocking i/o ring buffer. */
@@ -3418,18 +3463,18 @@ static PaError StopStream( PaStream *s )
                been consumed. */
             DWORD timeout = (DWORD)( 2 * blockingState->writeRingBuffer.bufferSize * 1000
                                        / stream->streamRepresentation.streamInfo.sampleRate );
-            DWORD waitResult = WaitForSingleObject( blockingState->writeBuffersReadyEvent, timeout );
+            DWORD waitResult = neosmart::WaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
 
             /* If something seriously went wrong... */
             if( waitResult == WAIT_FAILED )
             {
-                PA_DEBUG(("WaitForSingleObject() failed in StopStream()\n"));
+                PA_DEBUG(("WaitForEvent() failed in StopStream()\n"));
                 result = paUnanticipatedHostError;
-                PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
             }
             else if( waitResult == WAIT_TIMEOUT )
             {
-                PA_DEBUG(("WaitForSingleObject() timed out in StopStream()\n"));
+                PA_DEBUG(("WaitForEvent() timed out in StopStream()\n"));
                 result = paTimedOut;
             }
         }
@@ -3443,11 +3488,11 @@ static PaError StopStream( PaStream *s )
             length is longer than the asio buffer size then that should
             be taken into account.
         */
-        if( WaitForSingleObject( stream->completedBuffersPlayedEvent,
+        if( neosmart::WaitForEvent( stream->completedBuffersPlayedEvent,
                 (DWORD)(stream->streamRepresentation.streamInfo.outputLatency * 1000. * 4.) )
                     == WAIT_TIMEOUT )
         {
-            PA_DEBUG(("WaitForSingleObject() timed out in StopStream()\n" ));
+            PA_DEBUG(("WaitForEvent() timed out in StopStream()\n" ));
         }
     }
 
@@ -3618,7 +3663,7 @@ static PaError ReadStream( PaStream      *s     ,
             if( PaUtil_GetRingBufferReadAvailable(pRb) < (long) lFramesPerBlock )
             {
                 /* Make sure, the event isn't already set! */
-                /* ResetEvent( blockingState->readFramesReadyEvent ); */
+                /* neosmart::ResetEvent( blockingState->readFramesReadyEvent ); */
 
                 /* Set the number of requested buffers. */
                 blockingState->readFramesRequested = lFramesPerBlock;
@@ -3627,19 +3672,19 @@ static PaError ReadStream( PaStream      *s     ,
                 blockingState->readFramesRequestedFlag = TRUE;
 
                 /* Wait until requested number of buffers has been freed. */
-                waitResult = WaitForSingleObject( blockingState->readFramesReadyEvent, timeout );
+                waitResult = neosmart::WaitForEvent( blockingState->readFramesReadyEvent, timeout );
 
                 /* If something seriously went wrong... */
                 if( waitResult == WAIT_FAILED )
                 {
-                    PA_DEBUG(("WaitForSingleObject() failed in ReadStream()\n"));
+                    PA_DEBUG(("WaitForEvent() failed in ReadStream()\n"));
                     result = paUnanticipatedHostError;
-                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
                     return result;
                 }
                 else if( waitResult == WAIT_TIMEOUT )
                 {
-                    PA_DEBUG(("WaitForSingleObject() timed out in ReadStream()\n"));
+                    PA_DEBUG(("WaitForEvent() timed out in ReadStream()\n"));
 
                     /* If block processing has stopped, abort! */
                     if( blockingState->stopFlag ) { return result = paStreamIsStopped; }
@@ -3746,7 +3791,7 @@ static PaError WriteStream( PaStream      *s     ,
 
     /* About the time, needed to process 8 data blocks. */
     DWORD timeout = (DWORD)( 8 * lFramesPerBlock * 1000 / stream->streamRepresentation.streamInfo.sampleRate );
-    DWORD waitResult = 0;
+    int waitResult = 0;
 
     /* Copy the input argument to avoid pointer increment! */
     const void *userBuffer;
@@ -3790,7 +3835,7 @@ static PaError WriteStream( PaStream      *s     ,
             if( PaUtil_GetRingBufferWriteAvailable(pRb) < (long) lFramesPerBlock )
             {
                 /* Make sure, the event isn't already set! */
-                /* ResetEvent( blockingState->writeBuffersReadyEvent ); */
+                /* neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ); */
 
                 /* Set the number of requested buffers. */
                 blockingState->writeBuffersRequested = lFramesPerBlock;
@@ -3799,19 +3844,19 @@ static PaError WriteStream( PaStream      *s     ,
                 blockingState->writeBuffersRequestedFlag = TRUE;
 
                 /* Wait until requested number of buffers has been freed. */
-                waitResult = WaitForSingleObject( blockingState->writeBuffersReadyEvent, timeout );
+                waitResult = neosmart::WaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
 
                 /* If something seriously went wrong... */
                 if( waitResult == WAIT_FAILED )
                 {
-                    PA_DEBUG(("WaitForSingleObject() failed in WriteStream()\n"));
+                    PA_DEBUG(("WaitForEvent() failed in WriteStream()\n"));
                     result = paUnanticipatedHostError;
-                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( GetLastError() );
+                    PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
                     return result;
                 }
                 else if( waitResult == WAIT_TIMEOUT )
                 {
-                    PA_DEBUG(("WaitForSingleObject() timed out in WriteStream()\n"));
+                    PA_DEBUG(("WaitForEvent() timed out in WriteStream()\n"));
 
                     /* If block processing has stopped, abort! */
                     if( blockingState->stopFlag ) { return result = paStreamIsStopped; }
@@ -3968,7 +4013,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
             blockingState->writeBuffersRequestedFlag = FALSE;
             blockingState->writeBuffersRequested     = 0;
             /* Signalize that requested buffers are ready. */
-            SetEvent( blockingState->writeBuffersReadyEvent );
+            neosmart::SetEvent( blockingState->writeBuffersReadyEvent );
             /* What do we do if SetEvent() returns zero, i.e. the event
                could not be set? How to return errors from within the
                callback? - S.Fischer */
@@ -4007,7 +4052,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
             blockingState->readFramesRequestedFlag = FALSE;
             blockingState->readFramesRequested     = 0;
             /* Signalize that requested buffers are ready. */
-            SetEvent( blockingState->readFramesReadyEvent );
+            neosmart::SetEvent( blockingState->readFramesReadyEvent );
             /* What do we do if SetEvent() returns zero, i.e. the event
                could not be set? How to return errors from within the
                callback? - S.Fischer */
