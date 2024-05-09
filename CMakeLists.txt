@@ -168,7 +168,7 @@ if(PA_USE_CWASIO)
       if($ENV{PA_USE_CWASIO_TAG})
           set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
       else()
-          set(PA_USE_CWASIO_TAG "9b7a3cbd5d6273973ec6da142e0bd878548caf28")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_CWASIO_TAG "7ee749d8e2d04046caf67f03b2ab24fd4d69ab0d")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
@@ -259,12 +259,15 @@ if(WIN32)
   endif()
 
   if(PA_USE_CWASIO)
-    target_link_libraries(PortAudio PRIVATE cwASIO::lib)
+    target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib>)
     set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
     target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
     set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
+    target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.cpp)
     target_sources(PortAudio PRIVATE
       src/hostapi/cwasio/pa_cwasio.cpp
+      src/hostapi/cwasio/pevents.cpp
+      src/hostapi/cwasio/pevents.h
     )
   else()
     set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
@@ -440,6 +443,21 @@ elseif(UNIX)
       target_compile_definitions(PortAudio PUBLIC PA_USE_SNDIO=1)
       set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_SNDIO=1")
       set(PKGCONFIG_REQUIRES_PRIVATE "${PKGCONFIG_REQUIRES_PRIVATE} sndio")
+    endif()
+
+    if(PA_USE_CWASIO)
+      target_sources(PortAudio PRIVATE
+        src/hostapi/cwasio/pa_cwasio.cpp
+        src/hostapi/cwasio/pevents.cpp
+        src/hostapi/cwasio/pevents.h
+      )
+      set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
+      target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
+      set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
+      target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib>)
+      export(TARGETS cwASIO_lib FILE FindCwASIO.cmake)
+    else()
+      set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
     endif()
   endif()
 endif()
