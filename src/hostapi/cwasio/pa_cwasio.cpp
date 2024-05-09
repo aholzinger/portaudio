@@ -95,6 +95,8 @@
     #include <windows.h>
     #include <mmsystem.h>
 #else
+    #include <time.h>
+    #include <unistd.h>
     typedef u_int32_t DWORD;
 #endif
 
@@ -248,9 +250,31 @@ static const char* PaCwAsio_GetAsioErrorText( ASIOError asioError )
 #elif WINDOWS
     inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement(const_cast<long*>(v));}
     inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement(const_cast<long*>(v));}
+#else
+    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return __sync_add_and_fetch(const_cast<long*>(v), 1L);}
+    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return __sync_sub_and_fetch(const_cast<long*>(v), 1L);}
 #endif
 
 
+
+// Sleep function that sleeps for milliseconds
+#if WINDOWS
+    void PaCwAsio_SleepMilliseconds(unsigned milliseconds) {Sleep(milliseconds);}
+#else
+    void PaCwAsio_SleepMilliseconds(unsigned milliseconds) {useconds_t usec = milliseconds * 1000U; usleep(usec);}
+#endif
+
+
+
+#if _WINDOWS
+    typedef PaWinUtilComInitializationResult PaCwAsioComInitializationResult;
+    PaError PaCwAsio_CoInitialize(PaHostApiTypeId htid, PaCwAsioComInitializationResult *comInitializationResult) {return PaWinUtil_CoInitialize(htid, comInitializationResult);}
+    void PaCwAsio_CoUninitialize(PaHostApiTypeId htid, PaCwAsioComInitializationResult *comInitializationResult) {return PaWinUtil_CoUninitialize(htid, comInitializationResult);}
+#else
+    typedef int PaCwAsioComInitializationResult;
+    PaError PaCwAsio_CoInitialize(PaHostApiTypeId, PaCwAsioComInitializationResult*) {return paNoError;}
+    void PaCwAsio_CoUninitialize(PaHostApiTypeId, PaCwAsioComInitializationResult*) {}
+#endif
 
 typedef struct CwAsioDriverInfo : ASIODriverInfo
 {
@@ -281,9 +305,7 @@ typedef struct
 
     PaUtilAllocationGroup *allocations;
 
-#if _WINDOWS
-    PaWinUtilComInitializationResult comInitializationResult;
-#endif
+    PaCwAsioComInitializationResult comInitializationResult;
     CwAsioDriverInfos driverInfos;
     
     void *systemSpecific;
@@ -1240,7 +1262,6 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     /* NOTE: we depend on PaUtil_AllocateZeroInitializedMemory() ensuring that all
        fields are set to zero. especially cwAsioHostApi->allocations */
 
-#if _WINDOWS
     /*
         We initialize COM ourselves here and uninitialize it in Terminate().
         This should be the only COM initialization needed in this module.
@@ -1253,12 +1274,11 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         from a non-main thread. However we currently consider initialization
         of COM in non-main threads to be the caller's responsibility.
     */
-    result = PaWinUtil_CoInitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+    result = PaCwAsio_CoInitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
     if( result != paNoError )
     {
         goto error;
     }
-#endif
 
     cwAsioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !cwAsioHostApi->allocations )
@@ -1415,9 +1435,7 @@ error:
             PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
         }
 
-#if _WINDOWS
-        PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
-#endif
+        PaCwAsio_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
 
         PaUtil_FreeMemory( cwAsioHostApi );
     }
@@ -1441,9 +1459,7 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
     }
 
-#if _WINDOWS
-    PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
-#endif
+    PaCwAsio_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
 
     PaUtil_FreeMemory( cwAsioHostApi );
 }
@@ -1595,13 +1611,13 @@ done:
 /** A data structure specifically for storing blocking i/o related data. */
 typedef struct PaAsioStreamBlockingState
 {
-    int stopFlag; /**< Flag indicating that block processing is to be stopped. */
+    bool stopFlag; /**< Flag indicating that block processing is to be stopped. */
 
     unsigned long writeBuffersRequested; /**< The number of available output buffers, requested by the #WriteStream() function. */
     unsigned long readFramesRequested;   /**< The number of available input frames, requested by the #ReadStream() function. */
 
-    int writeBuffersRequestedFlag; /**< Flag to indicate that #WriteStream() has requested more output buffers to be available. */
-    int readFramesRequestedFlag;   /**< Flag to indicate that #ReadStream() requires more input frames to be available. */
+    bool writeBuffersRequestedFlag; /**< Flag to indicate that #WriteStream() has requested more output buffers to be available. */
+    bool readFramesRequestedFlag;   /**< Flag to indicate that #ReadStream() requires more input frames to be available. */
 
     neosmart::neosmart_event_t writeBuffersReadyEvent; /**< Event to signal that requested output buffers are available. */
     neosmart::neosmart_event_t readFramesReadyEvent;   /**< Event to signal that requested input frames are available. */
@@ -2065,7 +2081,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int *outputChannelSelectors = 0;
 
     /* Are we using blocking i/o interface? */
-    int usingBlockingIo = ( !streamCallback ) ? TRUE : FALSE;
+    bool usingBlockingIo = ( !streamCallback ) ? true : false;
     /* Blocking i/o stuff */
     long lBlockingBufferSize     = 0; /* Desired ring buffer size in samples. */
     long lBlockingBufferSizePow2 = 0; /* Power-of-2 rounded ring buffer size. */
@@ -2073,8 +2089,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     int blockingWriteBuffersReadyEventInitialized = 0; /* Event init flag. */
     int blockingReadFramesReadyEventInitialized   = 0; /* Event init flag. */
 
-    int callbackBufferProcessorInited = FALSE;
-    int blockingBufferProcessorInited = FALSE;
+    bool callbackBufferProcessorInited = false;
+    bool blockingBufferProcessorInited = false;
 
     /* unless we move to using lower level ASIO calls, we can only have
         one device open at a time */
@@ -2504,7 +2520,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->blockingState->writeRingBufferData    = NULL; /* Uninitialized, yet. */
         stream->blockingState->readStreamBuffer       = NULL; /* Uninitialized, yet. */
         stream->blockingState->writeStreamBuffer      = NULL; /* Uninitialized, yet. */
-        stream->blockingState->stopFlag               = TRUE; /* Not started, yet. */
+        stream->blockingState->stopFlag               = true; /* Not started, yet. */
 
 
         /* If the user buffer is unspecified */
@@ -2534,7 +2550,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PA_DEBUG(("OpenStream ERROR13\n"));
             goto error;
         }
-        callbackBufferProcessorInited = TRUE;
+        callbackBufferProcessorInited = true;
 
         /* Initialize the blocking i/o buffer processor. */
         result = PaUtil_InitializeBufferProcessor(&stream->blockingState->bufferProcessor,
@@ -2554,7 +2570,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PA_DEBUG(("ERROR! Blocking i/o buffer processor initialization failed in OpenStream()\n"));
             goto error;
         }
-        blockingBufferProcessorInited = TRUE;
+        blockingBufferProcessorInited = true;
 
         /* If input is requested. */
         if( inputChannelCount )
@@ -2751,7 +2767,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             PA_DEBUG(("OpenStream ERROR13\n"));
             goto error;
         }
-        callbackBufferProcessorInited = TRUE;
+        callbackBufferProcessorInited = true;
 
         stream->streamRepresentation.streamInfo.inputLatency =
                 (double)( PaUtil_GetBufferProcessorInputLatencyFrames(&stream->bufferProcessor)
@@ -3395,11 +3411,11 @@ static PaError StartStream( PaStream *s )
         /* Clear requested frames / buffers count. */
         blockingState->writeBuffersRequested     = 0;
         blockingState->readFramesRequested       = 0;
-        blockingState->writeBuffersRequestedFlag = FALSE;
-        blockingState->readFramesRequestedFlag   = FALSE;
-        blockingState->outputUnderflowFlag       = FALSE;
-        blockingState->inputOverflowFlag         = FALSE;
-        blockingState->stopFlag                  = FALSE;
+        blockingState->writeBuffersRequestedFlag = false;
+        blockingState->readFramesRequestedFlag   = false;
+        blockingState->outputUnderflowFlag       = false;
+        blockingState->inputOverflowFlag         = false;
+        blockingState->stopFlag                  = false;
     }
 
 
@@ -3434,7 +3450,7 @@ static void EnsureCallbackHasCompleted( PaAsioStream *stream )
     int count = 2000;  // only wait for 2 seconds, rather than hanging.
     while( stream->reenterCount != -1 && count > 0 )
     {
-        Sleep(1);
+        PaCwAsio_SleepMilliseconds(1U);
         --count;
     }
 }
@@ -3454,9 +3470,9 @@ static PaError StopStream( PaStream *s )
             /* Request the whole output buffer to be available. */
             blockingState->writeBuffersRequested = blockingState->writeRingBuffer.bufferSize;
             /* Signalize that additional buffers are need. */
-            blockingState->writeBuffersRequestedFlag = TRUE;
+            blockingState->writeBuffersRequestedFlag = true;
             /* Set flag to indicate the playback is to be stopped. */
-            blockingState->stopFlag = TRUE;
+            blockingState->stopFlag = true;
 
             /* Wait until requested number of buffers has been freed. Time
                out after twice the blocking i/o output buffer could have
@@ -3571,7 +3587,13 @@ static PaTime GetStreamTime( PaStream *s )
 {
     (void) s; /* unused parameter */
 
+#if WINDOWS
     return (double)timeGetTime() * .001;
+#else
+    struct timespec tp{ 0 };
+    clock_gettime( CLOCK_MONOTONIC, &tp );
+    return double(tp.tv_sec) + double(tp.tv_nsec) * .000000001;
+#endif
 }
 
 
@@ -3669,7 +3691,7 @@ static PaError ReadStream( PaStream      *s     ,
                 blockingState->readFramesRequested = lFramesPerBlock;
 
                 /* Signalize that additional buffers are need. */
-                blockingState->readFramesRequestedFlag = TRUE;
+                blockingState->readFramesRequestedFlag = true;
 
                 /* Wait until requested number of buffers has been freed. */
                 waitResult = neosmart::WaitForEvent( blockingState->readFramesReadyEvent, timeout );
@@ -3746,7 +3768,7 @@ static PaError ReadStream( PaStream      *s     ,
         /* If there has been an input overflow within the callback */
         if( blockingState->inputOverflowFlag )
         {
-            blockingState->inputOverflowFlag = FALSE;
+            blockingState->inputOverflowFlag = false;
 
             /* Return the corresponding error code. */
             result = paInputOverflowed;
@@ -3841,7 +3863,7 @@ static PaError WriteStream( PaStream      *s     ,
                 blockingState->writeBuffersRequested = lFramesPerBlock;
 
                 /* Signalize that additional buffers are need. */
-                blockingState->writeBuffersRequestedFlag = TRUE;
+                blockingState->writeBuffersRequestedFlag = true;
 
                 /* Wait until requested number of buffers has been freed. */
                 waitResult = neosmart::WaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
@@ -3918,7 +3940,7 @@ static PaError WriteStream( PaStream      *s     ,
         /* If there has been an output underflow within the callback */
         if( blockingState->outputUnderflowFlag )
         {
-            blockingState->outputUnderflowFlag = FALSE;
+            blockingState->outputUnderflowFlag = false;
 
             /* Return the corresponding error code. */
             result = paOutputUnderflowed;
@@ -3977,7 +3999,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         /* If the callback input argument signalizes a output underflow,
            make sure the WriteStream() function knows about it, too! */
         if( statusFlags & paOutputUnderflowed ) {
-            blockingState->outputUnderflowFlag = TRUE;
+            blockingState->outputUnderflowFlag = true;
         }
 
         /* Access the corresponding ring buffer. */
@@ -3992,7 +4014,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         else /* If no output data is available :-( */
         {
             /* Signalize a write-buffer underflow. */
-            blockingState->outputUnderflowFlag = TRUE;
+            blockingState->outputUnderflowFlag = true;
 
             /* Fill the output buffer with silence. */
             (*pBp->outputZeroer)( outputBuffer, 1, pBp->outputChannelCount * framesPerBuffer );
@@ -4010,7 +4032,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         if( blockingState->writeBuffersRequestedFlag && PaUtil_GetRingBufferWriteAvailable(pRb) >= (long) blockingState->writeBuffersRequested )
         {
             /* Reset buffer request. */
-            blockingState->writeBuffersRequestedFlag = FALSE;
+            blockingState->writeBuffersRequestedFlag = false;
             blockingState->writeBuffersRequested     = 0;
             /* Signalize that requested buffers are ready. */
             neosmart::SetEvent( blockingState->writeBuffersReadyEvent );
@@ -4026,7 +4048,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         /* If the callback input argument signalizes a input overflow,
            make sure the ReadStream() function knows about it, too! */
         if( statusFlags & paInputOverflowed ) {
-            blockingState->inputOverflowFlag = TRUE;
+            blockingState->inputOverflowFlag = true;
         }
 
         /* Access the corresponding ring buffer. */
@@ -4036,7 +4058,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         if( PaUtil_GetRingBufferWriteAvailable(pRb) < (long) framesPerBuffer )
         {
             /* Signalize a read-buffer overflow. */
-            blockingState->inputOverflowFlag = TRUE;
+            blockingState->inputOverflowFlag = true;
 
             /* Remove some old data frames from the buffer. */
             PaUtil_AdvanceRingBufferReadIndex( pRb, framesPerBuffer );
@@ -4049,7 +4071,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
         if( blockingState->readFramesRequestedFlag && PaUtil_GetRingBufferReadAvailable(pRb) >= (long) blockingState->readFramesRequested )
         {
             /* Reset buffer request. */
-            blockingState->readFramesRequestedFlag = FALSE;
+            blockingState->readFramesRequestedFlag = false;
             blockingState->readFramesRequested     = 0;
             /* Signalize that requested buffers are ready. */
             neosmart::SetEvent( blockingState->readFramesReadyEvent );
@@ -4074,11 +4096,11 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     int asioIsInitialized = 0;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
-    PaWinUtilComInitializationResult comInitializationResult;
+    PaCwAsioComInitializationResult comInitializationResult;
     std::string clsid;
 
     /* initialize COM again here, we might be in another thread */
-    result = PaWinUtil_CoInitialize( paASIO, &comInitializationResult );
+    result = PaCwAsio_CoInitialize( paASIO, &comInitializationResult );
     if( result != paNoError )
         return result;
 
@@ -4167,7 +4189,7 @@ error:
         ASIOExit();
     }
 
-    PaWinUtil_CoUninitialize( paASIO, &comInitializationResult );
+    PaCwAsio_CoUninitialize( paASIO, &comInitializationResult );
 
     return result;
 }
