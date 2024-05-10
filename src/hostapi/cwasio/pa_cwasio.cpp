@@ -266,16 +266,6 @@ static const char* PaCwAsio_GetAsioErrorText( ASIOError asioError )
 
 
 
-#if _WINDOWS
-    typedef PaWinUtilComInitializationResult PaCwAsioComInitializationResult;
-    PaError PaCwAsio_CoInitialize(PaHostApiTypeId htid, PaCwAsioComInitializationResult *comInitializationResult) {return PaWinUtil_CoInitialize(htid, comInitializationResult);}
-    void PaCwAsio_CoUninitialize(PaHostApiTypeId htid, PaCwAsioComInitializationResult *comInitializationResult) {return PaWinUtil_CoUninitialize(htid, comInitializationResult);}
-#else
-    typedef int PaCwAsioComInitializationResult;
-    PaError PaCwAsio_CoInitialize(PaHostApiTypeId, PaCwAsioComInitializationResult*) {return paNoError;}
-    void PaCwAsio_CoUninitialize(PaHostApiTypeId, PaCwAsioComInitializationResult*) {}
-#endif
-
 typedef struct CwAsioDriverInfo : ASIODriverInfo
 {
     char clsid[64];
@@ -292,10 +282,15 @@ typedef struct PaCwAsioDriverInfo
 }
 PaCwAsioDriverInfo;
 
+typedef struct CwAsioDriverInfos
+{
+    CwAsioDriverInfo asioDriverInfos[32];
+    size_t size;
+}
+CwAsioDriverInfos;
+
 
 /* PaCwAsioHostApiRepresentation - host api datastructure specific to this implementation */
-
-typedef std::vector<CwAsioDriverInfo> CwAsioDriverInfos;
 
 typedef struct
 {
@@ -305,7 +300,6 @@ typedef struct
 
     PaUtilAllocationGroup *allocations;
 
-    PaCwAsioComInitializationResult comInitializationResult;
     CwAsioDriverInfos driverInfos;
     
     void *systemSpecific;
@@ -342,13 +336,14 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
     assert( sizeof(driverInfo.desc) > 0 );
     strncpy(driverInfo.desc, desc, sizeof(driverInfo.desc) - 1U );
 
-    cwAsioDriverInfos->push_back( driverInfo );
+    cwAsioDriverInfos->asioDriverInfos[cwAsioDriverInfos->size++] = driverInfo;
     return true;
 }
 
 static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, long maxDrivers )
 {
     std::vector<std::string> n;
+    memset(cwAsioDriverInfos, 0, sizeof(CwAsioDriverInfos));
     int result = cwASIOenumerate( &cwAsioCallback, cwAsioDriverInfos);
     if ( result != 0 )
     {
@@ -356,13 +351,13 @@ static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, 
     }
 
     long driverCount = 0;
-    for ( auto const &driverInfo : *cwAsioDriverInfos )
+    for ( size_t s = 0; s < cwAsioDriverInfos->size; ++s )
     {
         if ( driverCount >= maxDrivers )
             break;
 
         if ( names )
-            strcpy( names[driverCount], driverInfo.name );
+            strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].name);
         driverCount++;
     }
 
@@ -994,15 +989,16 @@ PaError PaCwAsio_GetAvailableBufferSizes( PaDeviceIndex device,
 static void UnloadAsioDriver( void )
 {
     ASIOExit();
+    ASIOUnload();
 }
 
 static std::string getDriverClsid( PaCwAsioHostApiRepresentation *cwAsioHostApi, char const *name )
 {
-    for ( auto const &driverInfo : cwAsioHostApi->driverInfos )
+    for (size_t s = 0; s < cwAsioHostApi->driverInfos.size; ++s)
     {
-        if (strncmp( driverInfo.name, name, sizeof(cwASIODriverInfo::name) ) == 0 )
+        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].name, name, sizeof(cwASIODriverInfo::name)) == 0)
         {
-            return driverInfo.clsid;
+            return cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid;
         }
     }
 
@@ -1020,15 +1016,19 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
 {
     PaError result = paNoError;
     ASIOError asioError;
+    int asioIsLoaded = 0;
     int asioIsInitialized = 0;
     std::string clsid = getDriverClsid( cwAsioHostApi, driverName );
 
-    ASIOUnload();
     if( ASIOLoad( clsid.c_str() ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
         goto error;
+    }
+    else
+    {
+        asioIsLoaded = 1;
     }
 
     memset( &driverInfo->cwAsioDriverInfo, 0, sizeof(CwAsioDriverInfo) );
@@ -1070,9 +1070,13 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
     return result;
 
 error:
-    if( asioIsInitialized )
+    if (asioIsInitialized)
     {
         ASIOExit();
+    }
+    if (asioIsLoaded)
+    {
+        ASIOUnload();
     }
 
     return result;
@@ -1263,23 +1267,8 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
        fields are set to zero. especially cwAsioHostApi->allocations */
 
     /*
-        We initialize COM ourselves here and uninitialize it in Terminate().
-        This should be the only COM initialization needed in this module.
-
-        The ASIO SDK may also initialize COM but since we want to reduce dependency
-        on the ASIO SDK we manage COM initialization ourselves.
-
-        There used to be code that initialized COM in other situations
-        such as when creating a Stream. This made PA work when calling Pa_CreateStream
-        from a non-main thread. However we currently consider initialization
-        of COM in non-main threads to be the caller's responsibility.
+        COM will be handled correctly by cwASIO. No need for us to take care about this.
     */
-    result = PaCwAsio_CoInitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
-    if( result != paNoError )
-    {
-        goto error;
-    }
-
     cwAsioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !cwAsioHostApi->allocations )
     {
@@ -1435,8 +1424,6 @@ error:
             PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
         }
 
-        PaCwAsio_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
-
         PaUtil_FreeMemory( cwAsioHostApi );
     }
 
@@ -1458,8 +1445,6 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         PaUtil_FreeAllAllocations( cwAsioHostApi->allocations );
         PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
     }
-
-    PaCwAsio_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
 
     PaUtil_FreeMemory( cwAsioHostApi );
 }
@@ -3362,7 +3347,7 @@ static PaError StartStream( PaStream *s )
 
     stream->callbackFlags = 0;
 
-    if( neosmart::ResetEvent( stream->completedBuffersPlayedEvent ) == 0 )
+    if( neosmart::ResetEvent( stream->completedBuffersPlayedEvent ) != 0 )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -3379,7 +3364,7 @@ static PaError StartStream( PaStream *s )
         if( stream->inputChannelCount )
         {
             /* Reset callback-ReadStream sync event. */
-            if( neosmart::ResetEvent( blockingState->readFramesReadyEvent ) == 0 )
+            if( neosmart::ResetEvent( blockingState->readFramesReadyEvent ) != 0 )
             {
                 result = paUnanticipatedHostError;
                 PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -3394,7 +3379,7 @@ static PaError StartStream( PaStream *s )
         if( stream->outputChannelCount )
         {
             /* Reset callback-WriteStream sync event. */
-            if( neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ) == 0 )
+            if( neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ) != 0 )
             {
                 result = paUnanticipatedHostError;
                 PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -4093,17 +4078,15 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     PaDeviceIndex hostApiDevice;
     ASIODriverInfo asioDriverInfo;
     ASIOError asioError;
+    int asioIsLoaded = 0;
     int asioIsInitialized = 0;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
-    PaCwAsioComInitializationResult comInitializationResult;
     std::string clsid;
 
-    /* initialize COM again here, we might be in another thread */
-    result = PaCwAsio_CoInitialize( paASIO, &comInitializationResult );
-    if( result != paNoError )
-        return result;
-
+    /*
+        COM will be handled correctly by cwASIO. No need for us to take care about this.
+    */
     result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
     if( result != paNoError )
         goto error;
@@ -4130,11 +4113,14 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
     clsid = getDriverClsid( cwAsioHostApi, cwAsioDeviceInfo->commonDeviceInfo.name );
 
-    ASIOUnload();
     if( ASIOLoad( clsid.c_str() ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         goto error;
+    }
+    else
+    {
+        asioIsLoaded = 1;
     }
 
     /* CRUCIAL!!! */
@@ -4181,6 +4167,10 @@ PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErr
 
 PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
 
+    ASIOUnload();
+
+PA_DEBUG(("PaAsio_ShowControlPanel: ASIOUnload()\n" ));
+
     return result;
 
 error:
@@ -4188,8 +4178,10 @@ error:
     {
         ASIOExit();
     }
-
-    PaCwAsio_CoUninitialize( paASIO, &comInitializationResult );
+    if (asioIsLoaded)
+    {
+        ASIOUnload();
+    }
 
     return result;
 }
