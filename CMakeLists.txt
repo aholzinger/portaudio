@@ -163,12 +163,12 @@ endif()
 option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
 if(PA_USE_CWASIO)
   set(CWASIO_SHARED OFF)
-  set(PA_USE_CWASIO_REPO "https://github.com/s13n/cwASIO.git" CACHE STRING "cwASIO repository to use")
+  set(PA_USE_CWASIO_REPO "https://github.com/aholzinger/cwASIO.git" CACHE STRING "cwASIO repository to use")
   if(NOT PA_USE_CWASIO_TAG)
       if($ENV{PA_USE_CWASIO_TAG})
           set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
       else()
-          set(PA_USE_CWASIO_TAG "7ee749d8e2d04046caf67f03b2ab24fd4d69ab0d")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_CWASIO_TAG "9ef9261c0a57459508027a8f2f52416e3c13196d")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
