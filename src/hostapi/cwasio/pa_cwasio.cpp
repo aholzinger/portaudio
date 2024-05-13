@@ -86,7 +86,6 @@
 #include <cstring>
 #include <new>
 #include <string>
-#include <vector>
 
 #include <stdio.h>
 //#include <values.h>
@@ -342,7 +341,6 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
 
 static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, long maxDrivers )
 {
-    std::vector<std::string> n;
     memset(cwAsioDriverInfos, 0, sizeof(CwAsioDriverInfos));
     int result = cwASIOenumerate( &cwAsioCallback, cwAsioDriverInfos);
     if ( result != 0 )
@@ -357,7 +355,10 @@ static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, 
             break;
 
         if ( names )
-            strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].name);
+            if ( cwAsioDriverInfos->asioDriverInfos[s].desc )
+                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].desc);
+            else
+                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].name);
         driverCount++;
     }
 
@@ -388,7 +389,12 @@ static char **GetCwAsioDriverNames( PaCwAsioHostApiRepresentation *cwAsioHostApi
 
     getDriverNames( &cwAsioHostApi->driverInfos, result, driverCount );
 
+    return result;
+
 error:
+    if ( result )
+        PaUtil_GroupFreeMemory( group, result );
+
     return result;
 }
 
@@ -997,6 +1003,14 @@ static std::string getDriverClsid( PaCwAsioHostApiRepresentation *cwAsioHostApi,
     for (size_t s = 0; s < cwAsioHostApi->driverInfos.size; ++s)
     {
         if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].name, name, sizeof(cwASIODriverInfo::name)) == 0)
+        {
+            return cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid;
+        }
+    }
+
+    for (size_t s = 0; s < cwAsioHostApi->driverInfos.size; ++s)
+    {
+        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].desc, name, sizeof(cwASIODriverInfo::name)) == 0)
         {
             return cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid;
         }
