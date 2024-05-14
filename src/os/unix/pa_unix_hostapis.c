@@ -54,6 +54,7 @@ PaError PaSGI_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex 
 PaError PaAsiHpi_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaMacCore_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 PaError PaSkeleton_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
+PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex index );
 
 /** Note that on Linux, ALSA is placed before OSS so that the former is preferred over the latter.
  */
@@ -116,6 +117,10 @@ PaUtilHostApiInitializer *paHostApiInitializers[] =
 
 #if PA_USE_SKELETON
         PaSkeleton_Initialize,
+#endif
+
+#if PA_USE_CWASIO
+        PaCwAsio_Initialize,
 #endif
 
         0   /* NULL terminated array */
