@@ -117,17 +117,10 @@
     #include "pa_win_util.h"
 #endif
 
-#if _WINDOWS
-    extern "C" {
-        #include <cwASIO.h>
-    }
-    #include <cwASIOifc.hpp>
-#else
-    extern "C" {
-        #include <cwASIO.h>
-        #include <cwASIOifc.h>
-    }
-#endif
+extern "C" {
+    #include <asio.h>
+    #include <cwASIO.h>
+}
 
 /* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
 #if defined(WIN32)
