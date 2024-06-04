@@ -168,7 +168,7 @@ if(PA_USE_CWASIO)
       if($ENV{PA_USE_CWASIO_TAG})
           set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
       else()
-          set(PA_USE_CWASIO_TAG "8337c10267475756543682f30e0725ff4665269d")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_CWASIO_TAG "f5c79d19814f742c434b47d7bf8359e1aaf63019")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
