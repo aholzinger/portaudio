@@ -168,7 +168,7 @@ if(PA_USE_CWASIO)
       if($ENV{PA_USE_CWASIO_TAG})
           set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
       else()
-          set(PA_USE_CWASIO_TAG "f5c79d19814f742c434b47d7bf8359e1aaf63019")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_CWASIO_TAG "2cf7e74f9fb5d775700fa0ff165fff99cdda9938")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
@@ -189,7 +189,7 @@ if(PA_USE_CWASIO)
       if($ENV{PA_USE_PEVENTS_TAG})
           set(PA_USE_PEVENTS_TAG $ENV{PA_USE_PEVENTS_TAG})
       else()
-          set(PA_USE_PEVENTS_TAG "9067c14d109ab6ed0af84e6500e8bdf258a6977c")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_PEVENTS_TAG "30af7e2707ca8850e9eca35dabcc50a6c402e5ca")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
@@ -284,7 +284,7 @@ if(WIN32)
     set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
     target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
     set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
-    target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.cpp)
+    target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.c)
     export(TARGETS cwASIO_lib FILE FindPevents.cmake)
     export(TARGETS pevents_lib APPEND FILE FindPevents.cmake)
   else()
@@ -464,7 +464,7 @@ elseif(UNIX)
     endif()
 
     if(PA_USE_CWASIO)
-      target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.cpp)
+      target_sources(PortAudio PRIVATE src/hostapi/cwasio/pa_cwasio.c)
       set(PORTAUDIO_PUBLIC_HEADERS "${PORTAUDIO_PUBLIC_HEADERS}" include/pa_cwasio.h)
       target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
       set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")

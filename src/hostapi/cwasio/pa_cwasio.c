@@ -81,14 +81,10 @@
 */
 
 
-#include <cassert>
-#include <cstdio>
-#include <cstring>
-#include <new>
-#include <string>
-
+#include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
-//#include <values.h>
+#include <string.h>
 
 #if _WINDOWS
     #include <windows.h>
@@ -117,10 +113,7 @@
     #include "pa_win_util.h"
 #endif
 
-extern "C" {
-    #include <asio.h>
-    #include <cwASIO.h>
-}
+ #include <cwASIO.h>
 
 /* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
 #if defined(WIN32)
@@ -133,7 +126,7 @@ extern "C" {
 
 /* prototypes for functions declared in this file */
 
-extern "C" PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
+PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex );
 static void Terminate( struct PaUtilHostApiRepresentation *hostApi );
 static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                            PaStream** s,
@@ -171,12 +164,12 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
 
 /* our ASIO callback functions */
 
-static void bufferSwitch(long index, ASIOBool processNow);
-static ASIOTime *bufferSwitchTimeInfo(ASIOTime *timeInfo, long index, ASIOBool processNow);
-static void sampleRateChanged(ASIOSampleRate sRate);
+static void bufferSwitch(long index, cwASIOBool processNow);
+static struct cwASIOTime *bufferSwitchTimeInfo(struct cwASIOTime *timeInfo, long index, cwASIOBool processNow);
+static void sampleRateChanged(cwASIOSampleRate sRate);
 static long asioMessages(long selector, long value, void* message, double* opt);
 
-static ASIOCallbacks asioCallbacks_ =
+static struct cwASIOCallbacks asioCallbacks_ =
     { bufferSwitch, sampleRateChanged, asioMessages, bufferSwitchTimeInfo };
 
 
@@ -207,7 +200,7 @@ static DWORD getLastError()
     PaCwAsio_SetLastSystemError( errorCode )
 
 
-static const char* PaCwAsio_GetAsioErrorText( ASIOError asioError )
+static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
 {
     const char *result;
 
@@ -237,14 +230,14 @@ static const char* PaCwAsio_GetAsioErrorText( ASIOError asioError )
 // Atomic increment and decrement operations
 #if MAC
     /* need to be implemented on Mac */
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return ++(*const_cast<long*>(v));}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return --(*const_cast<long*>(v));}
+    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return ++(*(long*)(v));}
+    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return --(*(long*)(v));}
 #elif WINDOWS
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement(const_cast<long*>(v));}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement(const_cast<long*>(v));}
+    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement((long*)(v));}
+    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement((long*)(v));}
 #else
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return __sync_add_and_fetch(const_cast<long*>(v), 1L);}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return __sync_sub_and_fetch(const_cast<long*>(v), 1L);}
+    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return __sync_add_and_fetch((long*)(v), 1L);}
+    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return __sync_sub_and_fetch((long*)(v), 1L);}
 #endif
 
 
@@ -258,8 +251,9 @@ static const char* PaCwAsio_GetAsioErrorText( ASIOError asioError )
 
 
 
-typedef struct CwAsioDriverInfo : ASIODriverInfo
+typedef struct CwAsioDriverInfo
 {
+    struct cwASIODriverInfo base;
     char clsid[64];
     char desc[128];
 }
@@ -312,6 +306,786 @@ typedef struct
 }
 PaCwAsioHostApiRepresentation;
 
+/* cwASIO convenience functions emulating the old ASIO SDK functions */
+static struct cwASIODriver* theAsioDriver = NULL;
+
+static cwASIOError cwASIOLoad(char const* path) {
+    if (theAsioDriver)
+        return ASE_NoMemory;
+    return cwASIOload(path, &theAsioDriver);
+}
+
+static cwASIOError cwASIOUnload(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_InvalidParameter;
+    cwASIOunload(theAsioDriver);
+    theAsioDriver = NULL;
+    return ASE_OK;
+}
+
+static cwASIOError cwASIOExit(void) {
+    return ASE_OK;
+}
+
+/* because of Steinberg's goof the ASIO driver DLLs under WIndows use the __thiscall calling convention */
+/* the following functions using inline assembler will fix this for the differenct platforms and compilers if necessary */
+#if INTPTR_MAX != INT64_MAX && defined(_WIN32) && (defined(_MSC_VER) || defined(__BCPLUSPLUS__) || defined(__BORLANDC__))
+/* 32 bit Windows platform and MSVC or Borland compiler */
+static cwASIOError cwASIOInit(struct cwASIODriverInfo *info) {
+    if(!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    {
+        void *f = (void*) theAsioDriver->lpVtbl->init;
+        void *p =         info ? info->sysRef : 0;
+        cwASIOError retval;
+        __asm
+        {
+            mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+            push p;
+            call f;
+            mov retval, eax; /* return value is in EAX register */
+        }
+        if (!retval)
+            return ASE_NotPresent;
+    }
+    if(info) {
+        info->asioVersion = 2;
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getDriverName;
+            char *p =         info->name;
+            __asm
+            {
+                mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+                push p;
+                call f;
+            }
+        }
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getDriverVersion;
+            long retval;
+            __asm
+            {
+                mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+                call f;
+                mov retval, eax; /* return value is in EAX register */
+            }
+            info->driverVersion = retval;
+        }
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getErrorMessage;
+            char *p = (char*) info->errorMessage;
+            __asm
+            {
+                mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+                push p;
+                call f;
+            }
+        }
+    }
+    return ASE_OK;
+}
+
+static cwASIOError cwASIOStart(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->start;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOStop(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->stop;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetChannels(long *numInputChannels, long *numOutputChannels) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getChannels;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push numOutputChannels;
+        push numInputChannels;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetLatencies(long *inputLatency, long *outputLatency) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getLatencies;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push outputLatency;
+        push inputLatency;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetBufferSize(long *minSize, long *maxSize, long *preferredSize, long *granularity) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getBufferSize;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push granularity;
+        push preferredSize;
+        push maxSize;
+        push minSize;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOCanSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*)  theAsioDriver->lpVtbl->canSampleRate;
+    void *p = (void*) &sampleRate;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        mov eax, p;
+        push [eax+04h];
+        push [eax];
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetSampleRate(cwASIOSampleRate *currentRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void* f = (void*)theAsioDriver->lpVtbl->getSampleRate;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push currentRate;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOSetSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*)  theAsioDriver->lpVtbl->setSampleRate;
+    void *p = (void*) &sampleRate;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        mov eax, p;
+        push [eax+04h];
+        push [eax];
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetClockSources(struct cwASIOClockSource *clocks, long *numSources) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getClockSources;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push numSources;
+        push clocks;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOSetClockSource(long reference) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->setClockSource;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push reference;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetSamplePosition (cwASIOSamples *sPos, cwASIOTimeStamp *tStamp) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getSamplePosition;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push tStamp;
+        push sPos;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOGetChannelInfo(struct cwASIOChannelInfo *info) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getChannelInfo;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push info;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOCreateBuffers(struct cwASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, struct cwASIOCallbacks const *callbacks) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->createBuffers;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push callbacks;
+        push bufferSize;
+        push numChannels;
+        push bufferInfos;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIODisposeBuffers(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->disposeBuffers;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOControlPanel(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->controlPanel;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOFuture(long selector, void *params) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->future;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push params;
+        push selector;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+
+static cwASIOError cwASIOOutputReady(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->outputReady;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    return retval;
+}
+#elif INTPTR_MAX != INT64_MAX && defined(_WIN32) && defined(__GNUC__)
+/* 32 bit Windows platform and GCC compiler */
+static cwASIOError cwASIOInit(cwASIODriverInfo *info) {
+    if(!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    {
+        void *f = (void*) theAsioDriver->lpVtbl->init;
+        void *p =         info ? info->sysRef : 0;
+        cwASIOError retval;
+        __asm__ __volatile__ ("pushl %3\n\t"
+                              "call *%2\n\t"
+                              :"=a"(retval) /* Output Operands */
+                              :"c"(theAsioDriver), "r"(f), "r"(p) /* Input Operands */
+                              : /* Clobbered Registers */
+                             );
+        if (!retval)
+            return ASE_NotPresent;
+    }
+    if(info) {
+        info->asioVersion = 2;
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getDriverName;
+            char *p =         info->name;
+            __asm
+            {
+                mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+                push p;
+                call f;
+            }
+            __asm__ __volatile__ ("pushl %2\n\t"
+                                  "call *%1\n\t"
+                                  : /* Output Operands */
+                                  :"c"(theAsioDriver), "r"(f), "r"(p) /* Input Operands */
+                                  : /* Clobbered Registers */
+                                 );
+        }
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getDriverVersion;
+            long retval;
+            __asm__ __volatile__ ("call *%2\n\t"
+                                  :"=a"(retval) /* Output Operands */
+                                  :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                                  : /* Clobbered Registers */
+                                 );
+            info->driverVersion = retval;
+        }
+        {
+            void *f = (void*) theAsioDriver->lpVtbl->getErrorMessage;
+            char *p = (char*) info->errorMessage;
+            __asm__ __volatile__ ("pushl %2\n\t"
+                                  "call *%1\n\t"
+                                  : /* Output Operands */
+                                  :"c"(theAsioDriver), "r"(f), "r"(p) /* Input Operands */
+                                  : /* Clobbered Registers */
+                                 );
+        }
+    }
+    return ASE_OK;
+}
+
+static cwASIOError cwASIOStart(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->start;
+    cwASIOError retval;
+    __asm__ __volatile__ ("call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOStop(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->stop;
+    cwASIOError retval;
+    __asm__ __volatile__ ("call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetChannels(long *numInputChannels, long *numOutputChannels) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getChannels;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(numOutputChannels), "r"(numInputChannels) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetLatencies(long *inputLatency, long *outputLatency) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getLatencies;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(outputLatency), "r"(inputLatency) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetBufferSize(long *minSize, long *maxSize, long *preferredSize, long *granularity) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getBufferSize;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "pushl %5\n\t"
+                          "pushl %6\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(granularity), "r"(preferredSize), "r"(maxSize), "r"(minSize) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOCanSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*)  theAsioDriver->lpVtbl->canSampleRate;
+    void *p = (void*) &sampleRate;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl "#4"(%3)\n\t"
+                          "pushl (%3)\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(p) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetSampleRate(cwASIOSampleRate *currentRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getErrorMessage;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(currentRate) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOSetSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*)  theAsioDriver->lpVtbl->setSampleRate;
+    void *p = (void*) &sampleRate;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl "#4"(%3)\n\t"
+                          "pushl (%3)\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(p) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetClockSources(cwASIOClockSource *clocks, long *numSources) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getChannels;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(numSources), "r"(clocks) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOSetClockSource(long reference) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->setClockSource;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(reference) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetSamplePosition (cwASIOSamples *sPos, cwASIOTimeStamp *tStamp) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getSamplePosition;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(tStamp), "r"(sPos) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOGetChannelInfo(cwASIOChannelInfo *info) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->getChannelInfo;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(info) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOCreateBuffers(cwASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, cwASIOCallbacks const *callbacks) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->createBuffers;
+    cwASIOError retval;
+    __asm
+    {
+        mov ecx, theAsioDriver; /* this pointer needs to be in ECX register */
+        push callbacks;
+        push bufferSize;
+        push numChannels;
+        push bufferInfos;
+        call f;
+        mov retval, eax; /* return value is in EAX register */
+    }
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "pushl %5\n\t"
+                          "pushl %6\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(callbacks), "r"(bufferSize), "r"(numChannels), "r"(bufferInfos) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIODisposeBuffers(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->disposeBuffers;
+    cwASIOError retval;
+    __asm__ __volatile__ ("call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOControlPanel(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->controlPanel;
+    cwASIOError retval;
+    __asm__ __volatile__ ("call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOFuture(long selector, void *params) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->future;
+    cwASIOError retval;
+    __asm__ __volatile__ ("pushl %3\n\t"
+                          "pushl %4\n\t"
+                          "call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f), "r"(params), "r"(selector) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+
+static cwASIOError cwASIOOutputReady(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    void *f = (void*) theAsioDriver->lpVtbl->outputReady;
+    cwASIOError retval;
+    __asm__ __volatile__ ("call *%2\n\t"
+                          :"=a"(retval) /* Output Operands */
+                          :"c"(theAsioDriver), "r"(f) /* Input Operands */
+                          : /* Clobbered Registers */
+                         );
+    return retval;
+}
+#else
+static cwASIOError cwASIOInit(cwASIODriverInfo *info) {
+    if(!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    if (!theAsioDriver->lpVtbl->init(theAsioDriver, info ? info->sysRef : 0))
+        return ASE_NotPresent;
+    if(info) {
+        info->asioVersion = 2;
+        theAsioDriver->lpVtbl->getDriverName(theAsioDriver, info->name);
+        info->driverVersion = theAsioDriver->lpVtbl->getDriverVersion(theAsioDriver);
+        theAsioDriver->lpVtbl->getErrorMessage(theAsioDriver, info->errorMessage);
+    }
+    return ASE_OK;
+}
+
+static cwASIOError cwASIOStart(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->start(theAsioDriver);
+}
+
+static cwASIOError cwASIOStop(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->stop(theAsioDriver);
+}
+
+static cwASIOError cwASIOGetChannels(long *numInputChannels, long *numOutputChannels) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getChannels(theAsioDriver, numInputChannels, numOutputChannels);
+}
+
+static cwASIOError cwASIOGetLatencies(long *inputLatency, long *outputLatency) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getLatencies(theAsioDriver, inputLatency, outputLatency);
+}
+
+static cwASIOError cwASIOGetBufferSize(long *minSize, long *maxSize, long *preferredSize, long *granularity) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getBufferSize(theAsioDriver, minSize, maxSize, preferredSize, granularity);
+}
+
+static cwASIOError cwASIOCanSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->canSampleRate(theAsioDriver, sampleRate);
+}
+
+static cwASIOError cwASIOGetSampleRate(cwASIOSampleRate *currentRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getSampleRate(theAsioDriver, currentRate);
+}
+
+static cwASIOError cwASIOSetSampleRate(cwASIOSampleRate sampleRate) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->setSampleRate(theAsioDriver, sampleRate);
+}
+
+static cwASIOError cwASIOGetClockSources(cwASIOClockSource *clocks, long *numSources) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getClockSources(theAsioDriver, clocks, numSources);
+}
+
+static cwASIOError cwASIOSetClockSource(long reference) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->setClockSource(theAsioDriver, reference);
+}
+
+static cwASIOError cwASIOGetSamplePosition (cwASIOSamples *sPos, cwASIOTimeStamp *tStamp) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getSamplePosition(theAsioDriver, sPos, tStamp);
+}
+
+static cwASIOError cwASIOGetChannelInfo(cwASIOChannelInfo *info) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->getChannelInfo(theAsioDriver, info);
+}
+
+static cwASIOError cwASIOCreateBuffers(cwASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, cwASIOCallbacks const *callbacks) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->createBuffers(theAsioDriver, bufferInfos, numChannels, bufferSize, callbacks);
+}
+
+static cwASIOError cwASIODisposeBuffers(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->disposeBuffers(theAsioDriver);
+}
+
+static cwASIOError cwASIOControlPanel(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->controlPanel(theAsioDriver);
+}
+
+static cwASIOError cwASIOFuture(long selector, void *params) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->future(theAsioDriver, selector, params);
+}
+
+static cwASIOError cwASIOOutputReady(void) {
+    if (!theAsioDriver || !theAsioDriver->lpVtbl)
+        return ASE_NotPresent;
+    return theAsioDriver->lpVtbl->outputReady(theAsioDriver);
+}
+#endif
+/* end of cwASIO convenience functions */
+
 static bool cwAsioCallback( void *context, char const *name, char const *clsid, char const *desc )
 {
     if (!context)
@@ -319,16 +1093,16 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
 
     CwAsioDriverInfos *cwAsioDriverInfos = ( CwAsioDriverInfos* ) context;
 
-    CwAsioDriverInfo driverInfo;
-    memset( &driverInfo, 0, sizeof(CwAsioDriverInfo) );
-    assert( sizeof(driverInfo.name) > 0 );
-    strncpy( driverInfo.name, name, sizeof(driverInfo.name ) - 1U );
-    assert( sizeof(driverInfo.clsid) > 0 );
-    strncpy(driverInfo.clsid, clsid, sizeof(driverInfo.clsid) - 1U );
-    assert( sizeof(driverInfo.desc) > 0 );
-    strncpy(driverInfo.desc, desc, sizeof(driverInfo.desc) - 1U );
+    CwAsioDriverInfo *driverInfo = &cwAsioDriverInfos->asioDriverInfos[cwAsioDriverInfos->size++];
+    assert(driverInfo);
+    memset( driverInfo, 0, sizeof(CwAsioDriverInfo) );
+    assert( sizeof(driverInfo->base.name) > 0 );
+    strncpy(driverInfo->base.name, name, sizeof(driverInfo->base.name ) - 1U );
+    assert( sizeof(driverInfo->clsid) > 0 );
+    strncpy(driverInfo->clsid, clsid, sizeof(driverInfo->clsid) - 1U );
+    assert( sizeof(driverInfo->desc) > 0 );
+    strncpy(driverInfo->desc, desc, sizeof(driverInfo->desc) - 1U );
 
-    cwAsioDriverInfos->asioDriverInfos[cwAsioDriverInfos->size++] = driverInfo;
     return true;
 }
 
@@ -348,10 +1122,10 @@ static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, 
             break;
 
         if ( names )
-            if ( cwAsioDriverInfos->asioDriverInfos[s].desc )
+            if ( cwAsioDriverInfos->asioDriverInfos[s].desc && *cwAsioDriverInfos->asioDriverInfos[s].desc != '\0' )
                 strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].desc);
             else
-                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].name);
+                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].base.name);
         driverCount++;
     }
 
@@ -392,7 +1166,7 @@ error:
 }
 
 
-static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type)
+static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(cwASIOSampleType type)
 {
     switch (type) {
         case ASIOSTInt16MSB:
@@ -426,7 +1200,7 @@ static PaSampleFormat AsioSampleTypeToPaNativeSampleFormat(ASIOSampleType type)
     }
 }
 
-void CwAsioSampleTypeLOG(ASIOSampleType type)
+void CwAsioSampleTypeLOG(cwASIOSampleType type)
 {
     switch (type) {
         case ASIOSTInt16MSB:  PA_DEBUG(("ASIOSTInt16MSB\n"));  break;
@@ -452,7 +1226,7 @@ void CwAsioSampleTypeLOG(ASIOSampleType type)
     }
 }
 
-static int BytesPerAsioSample( ASIOSampleType sampleType )
+static int BytesPerAsioSample( cwASIOSampleType sampleType )
 {
     switch (sampleType) {
         case ASIOSTInt16MSB:
@@ -650,7 +1424,7 @@ static void ConvertFloat32ToFloat64( void *buffer, long shift, long count )
 
 typedef void PaCwAsioBufferConverter( void *, long, long );
 
-static void SelectAsioToPaConverter( ASIOSampleType type, PaCwAsioBufferConverter **converter, long *shift )
+static void SelectAsioToPaConverter( cwASIOSampleType type, PaCwAsioBufferConverter **converter, long *shift )
 {
     *shift = 0;
     *converter = 0;
@@ -796,7 +1570,7 @@ static void SelectAsioToPaConverter( ASIOSampleType type, PaCwAsioBufferConverte
 }
 
 
-static void SelectPaToAsioConverter( ASIOSampleType type, PaCwAsioBufferConverter **converter, long *shift )
+static void SelectPaToAsioConverter( cwASIOSampleType type, PaCwAsioBufferConverter **converter, long *shift )
 {
     *shift = 0;
     *converter = 0;
@@ -950,7 +1724,7 @@ typedef struct PaCwAsioDeviceInfo
     long preferredBufferSize;
     long bufferGranularity;
 
-    ASIOChannelInfo *asioChannelInfos;
+    struct cwASIOChannelInfo *asioChannelInfos;
 }
 PaCwAsioDeviceInfo;
 
@@ -987,29 +1761,41 @@ PaError PaCwAsio_GetAvailableBufferSizes( PaDeviceIndex device,
 */
 static void UnloadAsioDriver( void )
 {
-    ASIOExit();
-    ASIOUnload();
+    cwASIOExit();
+    cwASIOUnload();
 }
 
-static std::string getDriverClsid( PaCwAsioHostApiRepresentation *cwAsioHostApi, char const *name )
+static PaError getDriverClsid( PaCwAsioHostApiRepresentation *cwAsioHostApi, char const *name, char *clsid, size_t clsidSize )
 {
+    if (!clsid || clsidSize == 0)
+        return paInsufficientMemory;
+    *clsid = '\0';
+    if (cwAsioHostApi->driverInfos.size == 0)
+        return paNoError;
+    if (clsidSize < sizeof(cwAsioHostApi->driverInfos.asioDriverInfos[0].clsid))
+        return paInsufficientMemory;
+
     for (size_t s = 0; s < cwAsioHostApi->driverInfos.size; ++s)
     {
-        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].name, name, sizeof(cwASIODriverInfo::name)) == 0)
+        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].base.name, name, sizeof(cwAsioHostApi->driverInfos.asioDriverInfos[s].base.name)) == 0)
         {
-            return cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid;
+            strncpy(clsid, cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid, sizeof(cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid));
+            clsid[--clsidSize] = '\0';
+            return paNoError;
         }
     }
 
     for (size_t s = 0; s < cwAsioHostApi->driverInfos.size; ++s)
     {
-        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].desc, name, sizeof(cwASIODriverInfo::name)) == 0)
+        if (strncmp(cwAsioHostApi->driverInfos.asioDriverInfos[s].desc, name, sizeof(cwAsioHostApi->driverInfos.asioDriverInfos[s].desc)) == 0)
         {
-            return cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid;
+            strncpy(clsid, cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid, sizeof(cwAsioHostApi->driverInfos.asioDriverInfos[s].clsid));
+            clsid[--clsidSize] = '\0';
+            return paNoError;
         }
     }
 
-    return std::string();
+    return paNoError;
 }
 
 /*
@@ -1022,12 +1808,19 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
         PaCwAsioDriverInfo *driverInfo, void *systemSpecific )
 {
     PaError result = paNoError;
-    ASIOError asioError;
+    cwASIOError asioError;
     int asioIsLoaded = 0;
     int asioIsInitialized = 0;
-    std::string clsid = getDriverClsid( cwAsioHostApi, driverName );
+    char clsid[64]; *clsid = '\0';
+    PaError paError = getDriverClsid( cwAsioHostApi, driverName, clsid, sizeof(clsid) );
+    if (paError != paNoError || *clsid == '\0')
+    {
+        result = paUnanticipatedHostError;
+        PA_CWASIO_SET_LAST_HOST_ERROR(0, "Failed to gett CLSID for ASIO driver");
+        goto error;
+    }
 
-    if( ASIOLoad( clsid.c_str() ) != ASE_OK )
+    if( cwASIOLoad( clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
@@ -1039,9 +1832,9 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
     }
 
     memset( &driverInfo->cwAsioDriverInfo, 0, sizeof(CwAsioDriverInfo) );
-    driverInfo->cwAsioDriverInfo.asioVersion = 2;
-    driverInfo->cwAsioDriverInfo.sysRef = systemSpecific;
-    if( (asioError = ASIOInit( &driverInfo->cwAsioDriverInfo )) != ASE_OK )
+    driverInfo->cwAsioDriverInfo.base.asioVersion = 2;
+    driverInfo->cwAsioDriverInfo.base.sysRef = systemSpecific;
+    if( (asioError = cwASIOInit( &driverInfo->cwAsioDriverInfo.base )) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
@@ -1052,7 +1845,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
         asioIsInitialized = 1;
     }
 
-    if( (asioError = ASIOGetChannels(&driverInfo->inputChannelCount,
+    if( (asioError = cwASIOGetChannels(&driverInfo->inputChannelCount,
             &driverInfo->outputChannelCount)) != ASE_OK )
     {
         result = paUnanticipatedHostError;
@@ -1060,7 +1853,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
         goto error;
     }
 
-    if( (asioError = ASIOGetBufferSize(&driverInfo->bufferMinSize,
+    if( (asioError = cwASIOGetBufferSize(&driverInfo->bufferMinSize,
             &driverInfo->bufferMaxSize, &driverInfo->bufferPreferredSize,
             &driverInfo->bufferGranularity)) != ASE_OK )
     {
@@ -1069,7 +1862,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
         goto error;
     }
 
-    if( ASIOOutputReady() == ASE_OK )
+    if( cwASIOOutputReady() == ASE_OK )
         driverInfo->postOutput = true;
     else
         driverInfo->postOutput = false;
@@ -1079,11 +1872,11 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
 error:
     if (asioIsInitialized)
     {
-        ASIOExit();
+        cwASIOExit();
     }
     if (asioIsLoaded)
     {
-        ASIOUnload();
+        cwASIOUnload();
     }
 
     return result;
@@ -1091,7 +1884,7 @@ error:
 
 
 #define PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_     13   /* must be the same number of elements as in the array below */
-static ASIOSampleRate defaultSampleRateSearchOrder_[]
+static cwASIOSampleRate defaultSampleRateSearchOrder_[]
      = {44100.0, 48000.0, 32000.0, 24000.0, 22050.0, 88200.0, 96000.0,
         192000.0, 16000.0, 12000.0, 11025.0, 9600.0, 8000.0 };
 
@@ -1129,7 +1922,7 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
         bool foundDefaultSampleRate = false;
         for( int j=0; j < PA_DEFAULTSAMPLERATESEARCHORDER_COUNT_; ++j )
         {
-            ASIOError asioError = ASIOCanSampleRate( defaultSampleRateSearchOrder_[j] );
+            cwASIOError asioError = cwASIOCanSampleRate( defaultSampleRateSearchOrder_[j] );
             if( asioError != ASE_NoClock && asioError != ASE_NotPresent )
             {
                 deviceInfo->defaultSampleRate = defaultSampleRateSearchOrder_[j];
@@ -1184,9 +1977,9 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
         cwAsioDeviceInfo->bufferGranularity = paCwAsioDriver.info.bufferGranularity;
 
 
-        cwAsioDeviceInfo->asioChannelInfos = (ASIOChannelInfo*)PaUtil_GroupAllocateZeroInitializedMemory(
+        cwAsioDeviceInfo->asioChannelInfos = (struct cwASIOChannelInfo*)PaUtil_GroupAllocateZeroInitializedMemory(
                 cwAsioHostApi->allocations,
-                sizeof(ASIOChannelInfo) * (deviceInfo->maxInputChannels
+                sizeof(struct cwASIOChannelInfo) * (deviceInfo->maxInputChannels
                         + deviceInfo->maxOutputChannels) );
         if( !cwAsioDeviceInfo->asioChannelInfos )
         {
@@ -1199,7 +1992,7 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
         for( a=0; a < deviceInfo->maxInputChannels; ++a ){
             cwAsioDeviceInfo->asioChannelInfos[a].channel = a;
             cwAsioDeviceInfo->asioChannelInfos[a].isInput = ASIOTrue;
-            ASIOError asioError = ASIOGetChannelInfo( &cwAsioDeviceInfo->asioChannelInfos[a] );
+            cwASIOError asioError = cwASIOGetChannelInfo( &cwAsioDeviceInfo->asioChannelInfos[a] );
             if( asioError != ASE_OK )
             {
                 result = paUnanticipatedHostError;
@@ -1212,7 +2005,7 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
             int b = deviceInfo->maxInputChannels + a;
             cwAsioDeviceInfo->asioChannelInfos[b].channel = a;
             cwAsioDeviceInfo->asioChannelInfos[b].isInput = ASIOFalse;
-            ASIOError asioError = ASIOGetChannelInfo( &cwAsioDeviceInfo->asioChannelInfos[b] );
+            cwASIOError asioError = cwASIOGetChannelInfo( &cwAsioDeviceInfo->asioChannelInfos[b] );
             if( asioError != ASE_OK )
             {
                 result = paUnanticipatedHostError;
@@ -1242,22 +2035,23 @@ error_unload:
 static long cwAsioGetNumDevs()
 {
     CwAsioDriverInfos cwAsioDriverInfos;
-    long numDevs = getDriverNames( &cwAsioDriverInfos, nullptr, 32U );
+    long numDevs = getDriverNames( &cwAsioDriverInfos, NULL, 32U );
     return numDevs;
 }
 
 #if _WINDOWS
     /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
     typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
-    static IsDebuggerPresentPtr IsDebuggerPresent_ = nullptr;
+    static IsDebuggerPresentPtr IsDebuggerPresent_ = NULL;
     //static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
 #else
     typedef bool (*IsDebuggerPresentPtr)(void);
-    static IsDebuggerPresentPtr IsDebuggerPresent_ = nullptr;
+    static IsDebuggerPresentPtr IsDebuggerPresent_ = NULL;
 #endif
 
 PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
+    MessageBoxA(NULL, "Bla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\n", "Debug", MB_OK);
     PaError result = paNoError;
     int i, driverCount;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
@@ -1468,7 +2262,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     int inputChannelCount, outputChannelCount;
     PaSampleFormat inputSampleFormat, outputSampleFormat;
     PaDeviceIndex asioDeviceIndex;
-    ASIOError asioError;
+    cwASIOError asioError;
 
     if( inputParameters && outputParameters )
     {
@@ -1578,7 +2372,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     /* query for sample rate support */
-    asioError = ASIOCanSampleRate( sampleRate );
+    asioError = cwASIOCanSampleRate( sampleRate );
     if( asioError == ASE_NoClock || asioError == ASE_NotPresent )
     {
         result = paInvalidSampleRate;
@@ -1611,8 +2405,8 @@ typedef struct PaAsioStreamBlockingState
     bool writeBuffersRequestedFlag; /**< Flag to indicate that #WriteStream() has requested more output buffers to be available. */
     bool readFramesRequestedFlag;   /**< Flag to indicate that #ReadStream() requires more input frames to be available. */
 
-    neosmart::neosmart_event_t writeBuffersReadyEvent; /**< Event to signal that requested output buffers are available. */
-    neosmart::neosmart_event_t readFramesReadyEvent;   /**< Event to signal that requested input frames are available. */
+    neosmart_event_t writeBuffersReadyEvent; /**< Event to signal that requested output buffers are available. */
+    neosmart_event_t readFramesReadyEvent;   /**< Event to signal that requested input frames are available. */
 
     void *writeRingBufferData; /**< The actual ring buffer memory, used by the output ring buffer. */
     void *readRingBufferData;  /**< The actual ring buffer memory, used by the input ring buffer. */
@@ -1649,8 +2443,8 @@ typedef struct PaAsioStream
         but store them here until we work out how format conversion is going
         to work. */
 
-    ASIOBufferInfo *asioBufferInfos;
-    ASIOChannelInfo *asioChannelInfos;
+    struct cwASIOBufferInfo *asioBufferInfos;
+    struct cwASIOChannelInfo *asioChannelInfos;
     long asioInputLatencyFrames, asioOutputLatencyFrames; // actual latencies returned by asio
 
     long inputChannelCount, outputChannelCount;
@@ -1667,7 +2461,7 @@ typedef struct PaAsioStream
 
     volatile bool stopProcessing;
     int stopPlayoutCount;
-    neosmart::neosmart_event_t completedBuffersPlayedEvent;
+    neosmart_event_t completedBuffersPlayedEvent;
 
     bool streamFinishedCallbackCalled;
     int isStopped;
@@ -1951,21 +2745,21 @@ static PaError ValidateAsioSpecificStreamInfo(
 static bool IsUsingExternalClockSource()
 {
     bool result = false;
-    ASIOError asioError;
-    ASIOClockSource clocks[32];
+    cwASIOError asioError;
+    struct cwASIOClockSource clocks[32];
     long numSources=32;
 
     /* davidv: listing ASIO Clock sources. there is an ongoing investigation by
-       me about whether or not to call ASIOSetSampleRate if an external Clock is
+       me about whether or not to call cwASIOSetSampleRate if an external Clock is
        used. A few drivers expected different things here */
 
-    asioError = ASIOGetClockSources(clocks, &numSources);
+    asioError = cwASIOGetClockSources(clocks, &numSources);
     if( asioError != ASE_OK ){
-        PA_DEBUG(("ERROR: ASIOGetClockSources: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOGetClockSources: %s\n", PaAsio_GetAsioErrorText(asioError) ));
     }else{
-        PA_DEBUG(("INFO ASIOGetClockSources listing %d clocks\n", numSources ));
+        PA_DEBUG(("INFO cwASIOGetClockSources listing %d clocks\n", numSources ));
         for (int i=0;i<numSources;++i){
-            PA_DEBUG(("ASIOClockSource%d %s current:%d\n", i, clocks[i].name, clocks[i].isCurrentSource ));
+            PA_DEBUG(("cwASIOClockSource%d %s current:%d\n", i, clocks[i].name, clocks[i].isCurrentSource ));
 
             if (clocks[i].isCurrentSource)
                 result = true;
@@ -1979,37 +2773,37 @@ static bool IsUsingExternalClockSource()
 static PaError ValidateAndSetSampleRate( double sampleRate )
 {
     PaError result = paNoError;
-    ASIOError asioError;
+    cwASIOError asioError;
 
     // check that the device supports the requested sample rate
 
-    asioError = ASIOCanSampleRate( sampleRate );
-    PA_DEBUG(("ASIOCanSampleRate(%f):%d\n", sampleRate, asioError ));
+    asioError = cwASIOCanSampleRate( sampleRate );
+    PA_DEBUG(("cwASIOCanSampleRate(%f):%d\n", sampleRate, asioError ));
 
     if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
-        PA_DEBUG(("ERROR: ASIOCanSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOCanSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
 
     // retrieve the current sample rate, we only change to the requested
     // sample rate if the device is not already in that rate.
 
-    ASIOSampleRate oldRate;
-    asioError = ASIOGetSampleRate(&oldRate);
+    cwASIOSampleRate oldRate;
+    asioError = cwASIOGetSampleRate(&oldRate);
     if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
-        PA_DEBUG(("ERROR: ASIOGetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOGetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
-    PA_DEBUG(("ASIOGetSampleRate:%f\n",oldRate));
+    PA_DEBUG(("cwASIOGetSampleRate:%f\n",oldRate));
 
     if (oldRate != sampleRate){
         /* Set sample rate */
 
-        PA_DEBUG(("before ASIOSetSampleRate(%f)\n",sampleRate));
+        PA_DEBUG(("before cwASIOSetSampleRate(%f)\n",sampleRate));
 
         /*
             If you have problems with some drivers when externally clocked,
@@ -2018,17 +2812,17 @@ static PaError ValidateAndSetSampleRate( double sampleRate )
         */
         //if( IsUsingExternalClockSource() ){
         if( false ){
-            asioError = ASIOSetSampleRate( 0 );
+            asioError = cwASIOSetSampleRate( 0 );
         }else{
-            asioError = ASIOSetSampleRate( sampleRate );
+            asioError = cwASIOSetSampleRate( sampleRate );
         }
         if( asioError != ASE_OK )
         {
             result = paInvalidSampleRate;
-            PA_DEBUG(("ERROR: ASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+            PA_DEBUG(("ERROR: cwASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
             goto error;
         }
-        PA_DEBUG(("after ASIOSetSampleRate(%f)\n",sampleRate));
+        PA_DEBUG(("after cwASIOSetSampleRate(%f)\n",sampleRate));
     }
     else
     {
@@ -2063,7 +2857,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     unsigned long suggestedInputLatencyFrames;
     unsigned long suggestedOutputLatencyFrames;
     PaDeviceIndex asioDeviceIndex;
-    ASIOError asioError;
+    cwASIOError asioError;
     int asioIsInitialized = 0;
     int asioBuffersCreated = 0;
     int completedBuffersPlayedEventInited = 0;
@@ -2228,7 +3022,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     stream->blockingState = NULL; /* Blocking i/o not initialized, yet. */
 
 
-    stream->completedBuffersPlayedEvent = neosmart::CreateEvent( true, false );
+    stream->completedBuffersPlayedEvent = NspeCreateEvent( true, false );
     if( stream->completedBuffersPlayedEvent == NULL )
     {
         result = paUnanticipatedHostError;
@@ -2262,8 +3056,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     PaUtil_InitializeCpuLoadMeasurer( &stream->cpuLoadMeasurer, sampleRate );
 
 
-    stream->asioBufferInfos = (ASIOBufferInfo*)PaUtil_AllocateZeroInitializedMemory(
-            sizeof(ASIOBufferInfo) * (inputChannelCount + outputChannelCount) );
+    stream->asioBufferInfos = (struct cwASIOBufferInfo*)PaUtil_AllocateZeroInitializedMemory(
+            sizeof(struct cwASIOBufferInfo) * (inputChannelCount + outputChannelCount) );
     if( !stream->asioBufferInfos )
     {
         result = paInsufficientMemory;
@@ -2274,7 +3068,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     for( i=0; i < inputChannelCount; ++i )
     {
-        ASIOBufferInfo *info = &stream->asioBufferInfos[i];
+        struct cwASIOBufferInfo *info = &stream->asioBufferInfos[i];
 
         info->isInput = ASIOTrue;
 
@@ -2290,7 +3084,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     for( i=0; i < outputChannelCount; ++i ){
-        ASIOBufferInfo *info = &stream->asioBufferInfos[inputChannelCount+i];
+        struct cwASIOBufferInfo *info = &stream->asioBufferInfos[inputChannelCount+i];
 
         info->isInput = ASIOFalse;
 
@@ -2323,12 +3117,12 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
            We should subtract any fixed known driver latency from
            suggestedLatencyFrames before computing the host buffer size.
            However, the ASIO API doesn't provide a method for determining fixed
-           latencies independent of the host buffer size. ASIOGetLatencies()
+           latencies independent of the host buffer size. cwASIOGetLatencies()
            only returns latencies after the buffer size has been configured, so
            we can't reliably use it to determine fixed latencies here.
 
            We could set the preferred buffer size and then subtract it from
-           the values returned from ASIOGetLatencies, but this would not be 100%
+           the values returned from cwASIOGetLatencies, but this would not be 100%
            reliable, so we don't do it.
         */
 
@@ -2344,14 +3138,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     PA_DEBUG(("PaAsioOpenStream: framesPerHostBuffer :%d\n",  framesPerHostBuffer));
 
-    asioError = ASIOCreateBuffers( stream->asioBufferInfos,
+    asioError = cwASIOCreateBuffers( stream->asioBufferInfos,
             inputChannelCount+outputChannelCount,
             framesPerHostBuffer, &asioCallbacks_ );
 
     if( asioError != ASE_OK
             && framesPerHostBuffer != (unsigned long)driverInfo->bufferPreferredSize )
     {
-        PA_DEBUG(("ERROR: ASIOCreateBuffers: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOCreateBuffers: %s\n", PaAsio_GetAsioErrorText(asioError) ));
         /*
             Some buggy drivers (like the Hoontech DSP24) give incorrect
             [min, preferred, max] values They should work with the preferred size
@@ -2363,7 +3157,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         PA_DEBUG(("PaAsioOpenStream: CORRECTED framesPerHostBuffer :%d\n",  framesPerHostBuffer));
 
-        ASIOError asioError2 = ASIOCreateBuffers( stream->asioBufferInfos,
+        cwASIOError asioError2 = cwASIOCreateBuffers( stream->asioBufferInfos,
                 inputChannelCount+outputChannelCount,
                  framesPerHostBuffer, &asioCallbacks_ );
         if( asioError2 == ASE_OK )
@@ -2380,8 +3174,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
     asioBuffersCreated = 1;
 
-    stream->asioChannelInfos = (ASIOChannelInfo*)PaUtil_AllocateZeroInitializedMemory(
-            sizeof(ASIOChannelInfo) * (inputChannelCount + outputChannelCount) );
+    stream->asioChannelInfos = (struct cwASIOChannelInfo*)PaUtil_AllocateZeroInitializedMemory(
+            sizeof(struct cwASIOChannelInfo) * (inputChannelCount + outputChannelCount) );
     if( !stream->asioChannelInfos )
     {
         result = paInsufficientMemory;
@@ -2393,7 +3187,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     {
         stream->asioChannelInfos[i].channel = stream->asioBufferInfos[i].channelNum;
         stream->asioChannelInfos[i].isInput = stream->asioBufferInfos[i].isInput;
-        asioError = ASIOGetChannelInfo( &stream->asioChannelInfos[i] );
+        asioError = cwASIOGetChannelInfo( &stream->asioChannelInfos[i] );
         if( asioError != ASE_OK )
         {
             result = paUnanticipatedHostError;
@@ -2453,7 +3247,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             see: "ASIO devices with multiple sample formats are unsupported"
             http://www.portaudio.com/trac/ticket/106
         */
-        ASIOSampleType inputType = stream->asioChannelInfos[0].type;
+        cwASIOSampleType inputType = stream->asioChannelInfos[0].type;
 
         PA_DEBUG(("ASIO Input  type:%d",inputType));
         CwAsioSampleTypeLOG(inputType);
@@ -2474,7 +3268,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             see: "ASIO devices with multiple sample formats are unsupported"
             http://www.portaudio.com/trac/ticket/106
         */
-        ASIOSampleType outputType = stream->asioChannelInfos[inputChannelCount].type;
+        cwASIOSampleType outputType = stream->asioChannelInfos[inputChannelCount].type;
 
         PA_DEBUG(("ASIO Output type:%d",outputType));
         CwAsioSampleTypeLOG(outputType);
@@ -2488,9 +3282,9 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         stream->outputBufferConverter = 0;
     }
 
-    /* Values returned by ASIOGetLatencies() include the latency introduced by
+    /* Values returned by cwASIOGetLatencies() include the latency introduced by
        the ASIO double buffer. */
-    ASIOGetLatencies( &stream->asioInputLatencyFrames, &stream->asioOutputLatencyFrames );
+    cwASIOGetLatencies( &stream->asioInputLatencyFrames, &stream->asioOutputLatencyFrames );
 
 
     /* Using blocking i/o interface... */
@@ -2568,7 +3362,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         if( inputChannelCount )
         {
             /* Create the callback sync-event. */
-            stream->blockingState->readFramesReadyEvent = neosmart::CreateEvent( false, false );
+            stream->blockingState->readFramesReadyEvent = NspeCreateEvent( false, false );
             if( stream->blockingState->readFramesReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
@@ -2655,7 +3449,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         /* If output is requested. */
         if( outputChannelCount )
         {
-            stream->blockingState->writeBuffersReadyEvent = neosmart::CreateEvent( false, false );
+            stream->blockingState->writeBuffersReadyEvent = NspeCreateEvent( false, false );
             if( stream->blockingState->writeBuffersReadyEvent == NULL )
             {
                 result = paUnanticipatedHostError;
@@ -2816,14 +3610,14 @@ error:
             if( stream->blockingState->writeStreamBuffer )
                 PaUtil_FreeMemory( stream->blockingState->writeStreamBuffer );
             if( blockingWriteBuffersReadyEventInitialized )
-                neosmart::DestroyEvent( stream->blockingState->writeBuffersReadyEvent );
+                NspeDestroyEvent( stream->blockingState->writeBuffersReadyEvent );
 
             if( stream->blockingState->readRingBufferData )
                 PaUtil_FreeMemory( stream->blockingState->readRingBufferData );
             if( stream->blockingState->readStreamBuffer )
                 PaUtil_FreeMemory( stream->blockingState->readStreamBuffer );
             if( blockingReadFramesReadyEventInitialized )
-                neosmart::DestroyEvent( stream->blockingState->readFramesReadyEvent );
+                NspeDestroyEvent( stream->blockingState->readFramesReadyEvent );
 
             PaUtil_FreeMemory( stream->blockingState );
         }
@@ -2832,7 +3626,7 @@ error:
             PaUtil_TerminateBufferProcessor( &stream->bufferProcessor );
 
         if( completedBuffersPlayedEventInited )
-            neosmart::DestroyEvent( stream->completedBuffersPlayedEvent );
+            NspeDestroyEvent( stream->completedBuffersPlayedEvent );
 
         if( stream->asioBufferInfos )
             PaUtil_FreeMemory( stream->asioBufferInfos );
@@ -2847,7 +3641,7 @@ error:
     }
 
     if( asioBuffersCreated )
-        ASIODisposeBuffers();
+        cwASIODisposeBuffers();
 
     if( asioIsInitialized )
     {
@@ -2876,7 +3670,7 @@ static PaError CloseStream( PaStream* s )
 
     stream->cwAsioHostApi->openAsioDeviceIndex = paNoDevice;
 
-    neosmart::DestroyEvent( stream->completedBuffersPlayedEvent );
+    NspeDestroyEvent( stream->completedBuffersPlayedEvent );
 
     /* Using blocking i/o interface... */
     if( stream->blockingState )
@@ -2886,12 +3680,12 @@ static PaError CloseStream( PaStream* s )
         if( stream->inputChannelCount ) {
             PaUtil_FreeMemory( stream->blockingState->readRingBufferData );
             PaUtil_FreeMemory( stream->blockingState->readStreamBuffer  );
-            neosmart::DestroyEvent( stream->blockingState->readFramesReadyEvent );
+            NspeDestroyEvent( stream->blockingState->readFramesReadyEvent );
         }
         if( stream->outputChannelCount ) {
             PaUtil_FreeMemory( stream->blockingState->writeRingBufferData );
             PaUtil_FreeMemory( stream->blockingState->writeStreamBuffer );
-            neosmart::DestroyEvent( stream->blockingState->writeBuffersReadyEvent );
+            NspeDestroyEvent( stream->blockingState->writeBuffersReadyEvent );
         }
 
         PaUtil_FreeMemory( stream->blockingState );
@@ -2902,7 +3696,7 @@ static PaError CloseStream( PaStream* s )
     PaUtil_FreeMemory( stream->bufferPtrs );
     PaUtil_FreeMemory( stream );
 
-    ASIODisposeBuffers();
+    cwASIODisposeBuffers();
     UnloadAsioDriver();
 
     theAsioStream = 0;
@@ -2911,7 +3705,7 @@ static PaError CloseStream( PaStream* s )
 }
 
 
-static void bufferSwitch(long index, ASIOBool directProcess)
+static void bufferSwitch(long index, cwASIOBool directProcess)
 {
 //TAKEN FROM THE ASIO SDK
 
@@ -2924,12 +3718,12 @@ static void bufferSwitch(long index, ASIOBool directProcess)
     // to be created though it will only set the timeInfo.samplePosition and
     // timeInfo.systemTime fields and the according flags
 
-    ASIOTime  timeInfo;
+    struct cwASIOTime  timeInfo;
     memset( &timeInfo, 0, sizeof (timeInfo) );
 
     // get the time stamp of the buffer, not necessary if no
     // synchronization to other media is required
-    if( ASIOGetSamplePosition(&timeInfo.timeInfo.samplePosition, &timeInfo.timeInfo.systemTime) == ASE_OK)
+    if( cwASIOGetSamplePosition(&timeInfo.timeInfo.samplePosition, &timeInfo.timeInfo.systemTime) == ASE_OK)
             timeInfo.timeInfo.flags = kSystemTimeValid | kSamplePositionValid;
 
     // Call the real callback
@@ -2937,7 +3731,7 @@ static void bufferSwitch(long index, ASIOBool directProcess)
 }
 
 
-// conversion from 64 bit ASIOSample/ASIOTimeStamp to double float
+// conversion from 64 bit ASIOSample/cwASIOTimeStamp to double float
 #if NATIVE_INT64
     #define ASIO64toDouble(a)  (a)
 #else
@@ -2945,7 +3739,7 @@ static void bufferSwitch(long index, ASIOBool directProcess)
     #define ASIO64toDouble(a)  ((a).lo + (a).hi * twoRaisedTo32)
 #endif
 
-static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool directProcess )
+static struct cwASIOTime *bufferSwitchTimeInfo( struct cwASIOTime *timeInfo, long index, cwASIOBool directProcess )
 {
     // the actual processing callback.
     // Beware that this is normally in a separate thread, hence be sure that
@@ -3036,10 +3830,10 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
             {
                 ZeroOutputBuffers( theAsioStream, index );
 
-                // Finally if the driver supports the ASIOOutputReady() optimization,
+                // Finally if the driver supports the cwASIOOutputReady() optimization,
                 // do it here, all data are in place
                 if( theAsioStream->postOutput )
-                    ASIOOutputReady();
+                    cwASIOOutputReady();
 
                 if( theAsioStream->stopProcessing )
                 {
@@ -3052,7 +3846,7 @@ static ASIOTime *bufferSwitchTimeInfo( ASIOTime *timeInfo, long index, ASIOBool 
                             if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
                                 theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
                             theAsioStream->streamFinishedCallbackCalled = true;
-                            neosmart::SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                            NspeSetEvent( theAsioStream->completedBuffersPlayedEvent );
                         }
                     }
                 }
@@ -3189,10 +3983,10 @@ previousTime = paTimeInfo.currentTime;
 
                 PaUtil_EndCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer, framesProcessed );
 
-                // Finally if the driver supports the ASIOOutputReady() optimization,
+                // Finally if the driver supports the cwASIOOutputReady() optimization,
                 // do it here, all data are in place
                 if( theAsioStream->postOutput )
-                    ASIOOutputReady();
+                    cwASIOOutputReady();
 
                 if( callbackResult == paContinue )
                 {
@@ -3205,7 +3999,7 @@ previousTime = paTimeInfo.currentTime;
                     if( theAsioStream->streamRepresentation.streamFinishedCallback != 0 )
                         theAsioStream->streamRepresentation.streamFinishedCallback( theAsioStream->streamRepresentation.userData );
                     theAsioStream->streamFinishedCallbackCalled = true;
-                    neosmart::SetEvent( theAsioStream->completedBuffersPlayedEvent );
+                    NspeSetEvent( theAsioStream->completedBuffersPlayedEvent );
                     theAsioStream->zeroOutput = true;
                 }
                 else /* paComplete or other non-zero value indicating complete */
@@ -3229,7 +4023,7 @@ previousTime = paTimeInfo.currentTime;
 }
 
 
-static void sampleRateChanged(ASIOSampleRate sRate)
+static void sampleRateChanged(cwASIOSampleRate sRate)
 {
     // TAKEN FROM THE ASIO SDK
     // do whatever you need to do if the sample rate changed
@@ -3275,7 +4069,7 @@ static long asioMessages(long selector, long value, void* message, double* opt)
         case kAsioResetRequest:
             // defer the task and perform the reset of the driver during the next "safe" situation
             // You cannot reset the driver right now, as this code is called from the driver.
-            // Reset the driver is done by completely destruct is. I.e. ASIOStop(), ASIODisposeBuffers(), Destruction
+            // Reset the driver is done by completely destruct is. I.e. ASIOStop(), cwASIODisposeBuffers(), Destruction
             // Afterwards you initialize the driver again.
 
             /*FIXME: commented the next line out
@@ -3336,7 +4130,7 @@ static PaError StartStream( PaStream *s )
     PaError result = paNoError;
     PaAsioStream *stream = (PaAsioStream*)s;
     PaAsioStreamBlockingState *blockingState = stream->blockingState;
-    ASIOError asioError;
+    cwASIOError asioError;
 
     if( stream->outputChannelCount > 0 )
     {
@@ -3354,7 +4148,7 @@ static PaError StartStream( PaStream *s )
 
     stream->callbackFlags = 0;
 
-    if( neosmart::ResetEvent( stream->completedBuffersPlayedEvent ) != 0 )
+    if(NspeResetEvent( stream->completedBuffersPlayedEvent ) != 0 )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -3371,7 +4165,7 @@ static PaError StartStream( PaStream *s )
         if( stream->inputChannelCount )
         {
             /* Reset callback-ReadStream sync event. */
-            if( neosmart::ResetEvent( blockingState->readFramesReadyEvent ) != 0 )
+            if(NspeResetEvent( blockingState->readFramesReadyEvent ) != 0 )
             {
                 result = paUnanticipatedHostError;
                 PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -3386,7 +4180,7 @@ static PaError StartStream( PaStream *s )
         if( stream->outputChannelCount )
         {
             /* Reset callback-WriteStream sync event. */
-            if( neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ) != 0 )
+            if(NspeResetEvent( blockingState->writeBuffersReadyEvent ) != 0 )
             {
                 result = paUnanticipatedHostError;
                 PA_CWASIO_SET_LAST_SYSTEM_ERROR( getLastError() );
@@ -3420,7 +4214,7 @@ static PaError StartStream( PaStream *s )
         stream->isActive = 1;
         stream->streamFinishedCallbackCalled = false;
 
-        asioError = ASIOStart();
+        asioError = cwASIOStart();
         if( asioError != ASE_OK )
         {
             stream->isStopped = 1;
@@ -3452,7 +4246,7 @@ static PaError StopStream( PaStream *s )
     PaError result = paNoError;
     PaAsioStream *stream = (PaAsioStream*)s;
     PaAsioStreamBlockingState *blockingState = stream->blockingState;
-    ASIOError asioError;
+    cwASIOError asioError;
 
     if( stream->isActive )
     {
@@ -3471,7 +4265,7 @@ static PaError StopStream( PaStream *s )
                been consumed. */
             DWORD timeout = (DWORD)( 2 * blockingState->writeRingBuffer.bufferSize * 1000
                                        / stream->streamRepresentation.streamInfo.sampleRate );
-            DWORD waitResult = neosmart::WaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
+            DWORD waitResult = NspeWaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
 
             /* If something seriously went wrong... */
             if( waitResult == WAIT_FAILED )
@@ -3496,7 +4290,7 @@ static PaError StopStream( PaStream *s )
             length is longer than the asio buffer size then that should
             be taken into account.
         */
-        if( neosmart::WaitForEvent( stream->completedBuffersPlayedEvent,
+        if(NspeWaitForEvent( stream->completedBuffersPlayedEvent,
                 (DWORD)(stream->streamRepresentation.streamInfo.outputLatency * 1000. * 4.) )
                     == WAIT_TIMEOUT )
         {
@@ -3504,7 +4298,7 @@ static PaError StopStream( PaStream *s )
         }
     }
 
-    asioError = ASIOStop();
+    asioError = cwASIOStop();
     if( asioError == ASE_OK )
     {
         EnsureCallbackHasCompleted( stream );
@@ -3531,11 +4325,11 @@ static PaError AbortStream( PaStream *s )
 {
     PaError result = paNoError;
     PaAsioStream *stream = (PaAsioStream*)s;
-    ASIOError asioError;
+    cwASIOError asioError;
 
     stream->zeroOutput = true;
 
-    asioError = ASIOStop();
+    asioError = cwASIOStop();
     if( asioError == ASE_OK )
     {
         EnsureCallbackHasCompleted( stream );
@@ -3677,7 +4471,7 @@ static PaError ReadStream( PaStream      *s     ,
             if( PaUtil_GetRingBufferReadAvailable(pRb) < (long) lFramesPerBlock )
             {
                 /* Make sure, the event isn't already set! */
-                /* neosmart::ResetEvent( blockingState->readFramesReadyEvent ); */
+                /* NspeResetEvent( blockingState->readFramesReadyEvent ); */
 
                 /* Set the number of requested buffers. */
                 blockingState->readFramesRequested = lFramesPerBlock;
@@ -3686,7 +4480,7 @@ static PaError ReadStream( PaStream      *s     ,
                 blockingState->readFramesRequestedFlag = true;
 
                 /* Wait until requested number of buffers has been freed. */
-                waitResult = neosmart::WaitForEvent( blockingState->readFramesReadyEvent, timeout );
+                waitResult = NspeWaitForEvent( blockingState->readFramesReadyEvent, timeout );
 
                 /* If something seriously went wrong... */
                 if( waitResult == WAIT_FAILED )
@@ -3849,7 +4643,7 @@ static PaError WriteStream( PaStream      *s     ,
             if( PaUtil_GetRingBufferWriteAvailable(pRb) < (long) lFramesPerBlock )
             {
                 /* Make sure, the event isn't already set! */
-                /* neosmart::ResetEvent( blockingState->writeBuffersReadyEvent ); */
+                /* NspeResetEvent( blockingState->writeBuffersReadyEvent ); */
 
                 /* Set the number of requested buffers. */
                 blockingState->writeBuffersRequested = lFramesPerBlock;
@@ -3858,7 +4652,7 @@ static PaError WriteStream( PaStream      *s     ,
                 blockingState->writeBuffersRequestedFlag = true;
 
                 /* Wait until requested number of buffers has been freed. */
-                waitResult = neosmart::WaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
+                waitResult = NspeWaitForEvent( blockingState->writeBuffersReadyEvent, timeout );
 
                 /* If something seriously went wrong... */
                 if( waitResult == WAIT_FAILED )
@@ -4027,7 +4821,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
             blockingState->writeBuffersRequestedFlag = false;
             blockingState->writeBuffersRequested     = 0;
             /* Signalize that requested buffers are ready. */
-            neosmart::SetEvent( blockingState->writeBuffersReadyEvent );
+            NspeSetEvent( blockingState->writeBuffersReadyEvent );
             /* What do we do if SetEvent() returns zero, i.e. the event
                could not be set? How to return errors from within the
                callback? - S.Fischer */
@@ -4066,7 +4860,7 @@ static int BlockingIoPaCallback(const void                     *inputBuffer    ,
             blockingState->readFramesRequestedFlag = false;
             blockingState->readFramesRequested     = 0;
             /* Signalize that requested buffers are ready. */
-            neosmart::SetEvent( blockingState->readFramesReadyEvent );
+            NspeSetEvent( blockingState->readFramesReadyEvent );
             /* What do we do if SetEvent() returns zero, i.e. the event
                could not be set? How to return errors from within the
                callback? - S.Fischer */
@@ -4083,13 +4877,13 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     PaError result = paNoError;
     PaUtilHostApiRepresentation *hostApi;
     PaDeviceIndex hostApiDevice;
-    ASIODriverInfo asioDriverInfo;
-    ASIOError asioError;
+    struct cwASIODriverInfo asioDriverInfo;
+    cwASIOError asioError;
     int asioIsLoaded = 0;
     int asioIsInitialized = 0;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
-    std::string clsid;
+    char clsid[64]; *clsid = '\0';
 
     /*
         COM will be handled correctly by cwASIO. No need for us to take care about this.
@@ -4106,7 +4900,7 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
         In theory we could proceed if the currently open device was the same
         one for which the control panel was requested, however  because the
         window pointer is not available until this function is called we
-        currently need to call ASIOInit() again here, which of course can't be
+        currently need to call cwASIOInit() again here, which of course can't be
         done safely while a stream is open.
     */
 
@@ -4118,9 +4912,14 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     }
 
     cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
-    clsid = getDriverClsid( cwAsioHostApi, cwAsioDeviceInfo->commonDeviceInfo.name );
+    result = getDriverClsid( cwAsioHostApi, cwAsioDeviceInfo->commonDeviceInfo.name, clsid, sizeof(clsid) );
+    if (result != paNoError || *clsid == '\0')
+    {
+        result = paUnanticipatedHostError;
+        goto error;
+    }
 
-    if( ASIOLoad( clsid.c_str() ) != ASE_OK )
+    if( cwASIOLoad( clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         goto error;
@@ -4131,10 +4930,10 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     }
 
     /* CRUCIAL!!! */
-    memset( &asioDriverInfo, 0, sizeof(ASIODriverInfo) );
+    memset( &asioDriverInfo, 0, sizeof(struct cwASIODriverInfo) );
     asioDriverInfo.asioVersion = 2;
     asioDriverInfo.sysRef = systemSpecific;
-    asioError = ASIOInit( &asioDriverInfo );
+    asioError = cwASIOInit( &asioDriverInfo );
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
@@ -4146,13 +4945,13 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
         asioIsInitialized = 1;
     }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOInit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
-PA_DEBUG(("asioVersion: ASIOInit(): %ld\n",   asioDriverInfo.asioVersion ));
-PA_DEBUG(("driverVersion: ASIOInit(): %ld\n", asioDriverInfo.driverVersion ));
-PA_DEBUG(("Name: ASIOInit(): %s\n",           asioDriverInfo.name ));
-PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n",   asioDriverInfo.errorMessage ));
+PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOInit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+PA_DEBUG(("asioVersion: cwASIOInit(): %ld\n",   asioDriverInfo.asioVersion ));
+PA_DEBUG(("driverVersion: cwASIOInit(): %ld\n", asioDriverInfo.driverVersion ));
+PA_DEBUG(("Name: cwASIOInit(): %s\n",           asioDriverInfo.name ));
+PA_DEBUG(("ErrorMessage: cwASIOInit(): %s\n",   asioDriverInfo.errorMessage ));
 
-    asioError = ASIOControlPanel();
+    asioError = cwASIOControlPanel();
     if( asioError != ASE_OK )
     {
         PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
@@ -4163,7 +4962,7 @@ PA_DEBUG(("ErrorMessage: ASIOInit(): %s\n",   asioDriverInfo.errorMessage ));
 
 PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
 
-    asioError = ASIOExit();
+    asioError = cwASIOExit();
     if( asioError != ASE_OK )
     {
         result = paUnanticipatedHostError;
@@ -4172,22 +4971,22 @@ PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErr
         goto error;
     }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
 
-    ASIOUnload();
+    cwASIOUnload();
 
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOUnload()\n" ));
+PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOUnload()\n" ));
 
     return result;
 
 error:
     if( asioIsInitialized )
     {
-        ASIOExit();
+        cwASIOExit();
     }
     if (asioIsLoaded)
     {
-        ASIOUnload();
+        cwASIOUnload();
     }
 
     return result;
@@ -4296,7 +5095,7 @@ static PaError GetAsioStreamPointer( PaAsioStream **stream, PaStream *s )
 }
 
 
-PaError PaAsio_SetStreamSampleRate( PaStream* s, double sampleRate )
+PaError PaCwAsio_SetStreamSampleRate( PaStream* s, double sampleRate )
 {
     PaAsioStream *stream;
     PaError result = GetAsioStreamPointer( &stream, s );
