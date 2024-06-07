@@ -968,7 +968,7 @@ static cwASIOError cwASIOOutputReady(void) {
     return retval;
 }
 #else
-static cwASIOError cwASIOInit(cwASIODriverInfo *info) {
+static cwASIOError cwASIOInit(struct cwASIODriverInfo *info) {
     if(!theAsioDriver || !theAsioDriver->lpVtbl)
         return ASE_NotPresent;
     if (!theAsioDriver->lpVtbl->init(theAsioDriver, info ? info->sysRef : 0))
@@ -1030,7 +1030,7 @@ static cwASIOError cwASIOSetSampleRate(cwASIOSampleRate sampleRate) {
     return theAsioDriver->lpVtbl->setSampleRate(theAsioDriver, sampleRate);
 }
 
-static cwASIOError cwASIOGetClockSources(cwASIOClockSource *clocks, long *numSources) {
+static cwASIOError cwASIOGetClockSources(struct cwASIOClockSource *clocks, long *numSources) {
     if (!theAsioDriver || !theAsioDriver->lpVtbl)
         return ASE_NotPresent;
     return theAsioDriver->lpVtbl->getClockSources(theAsioDriver, clocks, numSources);
@@ -1048,13 +1048,13 @@ static cwASIOError cwASIOGetSamplePosition (cwASIOSamples *sPos, cwASIOTimeStamp
     return theAsioDriver->lpVtbl->getSamplePosition(theAsioDriver, sPos, tStamp);
 }
 
-static cwASIOError cwASIOGetChannelInfo(cwASIOChannelInfo *info) {
+static cwASIOError cwASIOGetChannelInfo(struct cwASIOChannelInfo *info) {
     if (!theAsioDriver || !theAsioDriver->lpVtbl)
         return ASE_NotPresent;
     return theAsioDriver->lpVtbl->getChannelInfo(theAsioDriver, info);
 }
 
-static cwASIOError cwASIOCreateBuffers(cwASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, cwASIOCallbacks const *callbacks) {
+static cwASIOError cwASIOCreateBuffers(struct cwASIOBufferInfo *bufferInfos, long numChannels, long bufferSize, struct cwASIOCallbacks const *callbacks) {
     if (!theAsioDriver || !theAsioDriver->lpVtbl)
         return ASE_NotPresent;
     return theAsioDriver->lpVtbl->createBuffers(theAsioDriver, bufferInfos, numChannels, bufferSize, callbacks);
