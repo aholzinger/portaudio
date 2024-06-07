@@ -189,7 +189,7 @@ if(PA_USE_CWASIO)
       if($ENV{PA_USE_PEVENTS_TAG})
           set(PA_USE_PEVENTS_TAG $ENV{PA_USE_PEVENTS_TAG})
       else()
-          set(PA_USE_PEVENTS_TAG "30af7e2707ca8850e9eca35dabcc50a6c402e5ca")   # set default tag, when neither cache nor environment variable found.
+          set(PA_USE_PEVENTS_TAG "c231d499eb33ea8c7815436b88656bf56c62500f")   # set default tag, when neither cache nor environment variable found.
       endif()
   endif()
 
