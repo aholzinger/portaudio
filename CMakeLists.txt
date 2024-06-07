@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18.0)
 project(PortAudio VERSION 19.8)
+cmake_policy(SET CMP0091 NEW)
 
 include(GenerateExportHeader)
 include(FetchContent)
@@ -43,6 +44,22 @@ if(PA_WARNINGS_ARE_ERRORS)
             add_compile_options(-Wno-error=unknown-warning-option)
         endif()
     endif()
+endif()
+
+if(WIN32 AND MSVC AND PA_BUILD_SHARED_LIBS
+  # Check if the user is building PortAudio stand-alone or as part of a larger
+  # project. If this is part of a larger project (i.e. the CMakeLists.txt has
+  # been imported by some other CMakeLists.txt), we don't want to override
+  # that project's global settings.
+  AND "${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_LIST_DIR}")
+  option(PA_DLL_LINK_WITH_STATIC_RUNTIME
+    "Link with static runtime libraries (minimizes runtime dependencies)" ON)
+  if(PA_DLL_LINK_WITH_STATIC_RUNTIME)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  endif()
+  message(STATUS "CMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}")
 endif()
 
 add_library(PortAudio
@@ -102,27 +119,6 @@ if(IS_BIG_ENDIAN)
   target_compile_definitions(PortAudio PRIVATE PA_BIG_ENDIAN)
 else()
   target_compile_definitions(PortAudio PRIVATE PA_LITTLE_ENDIAN)
-endif()
-
-if(WIN32 AND MSVC AND PA_BUILD_SHARED_LIBS
-  # Check if the user is building PortAudio stand-alone or as part of a larger
-  # project. If this is part of a larger project (i.e. the CMakeLists.txt has
-  # been imported by some other CMakeLists.txt), we don't want to override
-  # that project's global settings.
-  AND "${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_LIST_DIR}")
-  option(PA_DLL_LINK_WITH_STATIC_RUNTIME
-    "Link with static runtime libraries (minimizes runtime dependencies)" ON)
-  if(PA_DLL_LINK_WITH_STATIC_RUNTIME)
-    foreach(flag_var
-      CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-      CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-      CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-      if(${flag_var} MATCHES "/MD")
-        string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-      endif()
-    endforeach()
-  endif()
 endif()
 
 #
