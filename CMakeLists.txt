@@ -46,20 +46,21 @@ if(PA_WARNINGS_ARE_ERRORS)
     endif()
 endif()
 
-if(WIN32 AND MSVC AND PA_BUILD_SHARED_LIBS
+if(WIN32 AND MSVC
   # Check if the user is building PortAudio stand-alone or as part of a larger
   # project. If this is part of a larger project (i.e. the CMakeLists.txt has
   # been imported by some other CMakeLists.txt), we don't want to override
   # that project's global settings.
   AND "${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_LIST_DIR}")
-  option(PA_DLL_LINK_WITH_STATIC_RUNTIME
-    "Link with static runtime libraries (minimizes runtime dependencies)" ON)
-  if(PA_DLL_LINK_WITH_STATIC_RUNTIME)
+  option(PA_BUILD_WITH_STATIC_RUNTIME
+    "Build with static runtime libraries (minimizes runtime dependencies)" OFF)
+  if(PA_BUILD_WITH_STATIC_RUNTIME)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    message(STATUS "Building with static runtime libraries")
   else()
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    message(STATUS "Building with dynamic runtime libraries")
   endif()
-  message(STATUS "CMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}")
 endif()
 
 add_library(PortAudio
