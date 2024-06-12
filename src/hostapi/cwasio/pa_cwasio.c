@@ -92,7 +92,7 @@
 #else
     #include <time.h>
     #include <unistd.h>
-    typedef u_int32_t DWORD;
+    typedef uint32_t DWORD;
 #endif
 
 #include "pevents.h"
@@ -2051,7 +2051,6 @@ static long cwAsioGetNumDevs()
 
 PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
-    MessageBoxA(NULL, "Bla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\nBla bla\n", "Debug", MB_OK);
     PaError result = paNoError;
     int i, driverCount;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
@@ -4376,9 +4375,9 @@ static PaTime GetStreamTime( PaStream *s )
 #if WINDOWS
     return (double)timeGetTime() * .001;
 #else
-    struct timespec tp{ 0 };
+    struct timespec tp = { 0 };
     clock_gettime( CLOCK_MONOTONIC, &tp );
-    return double(tp.tv_sec) + double(tp.tv_nsec) * .000000001;
+    return (double) tp.tv_sec + (double) tp.tv_nsec * .000000001;
 #endif
 }
 
