@@ -113,6 +113,11 @@
     #include "pa_win_util.h"
 #endif
 
+enum {
+    CLSID_MAX_LENGTH = 1024,
+    DESC_MAX_LENGTH = 128
+};
+
  #include <cwASIO.h>
 
 /* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
@@ -254,8 +259,8 @@ static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
 typedef struct CwAsioDriverInfo
 {
     struct cwASIODriverInfo base;
-    char clsid[64];
-    char desc[128];
+    char clsid[CLSID_MAX_LENGTH];
+    char desc[DESC_MAX_LENGTH];
 }
 CwAsioDriverInfo;
 
@@ -1811,7 +1816,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
     cwASIOError asioError;
     int asioIsLoaded = 0;
     int asioIsInitialized = 0;
-    char clsid[64]; *clsid = '\0';
+    char clsid[CLSID_MAX_LENGTH]; *clsid = '\0';
     PaError paError = getDriverClsid( cwAsioHostApi, driverName, clsid, sizeof(clsid) );
     if (paError != paNoError || *clsid == '\0')
     {
@@ -4882,7 +4887,7 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     int asioIsInitialized = 0;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
-    char clsid[64]; *clsid = '\0';
+    char clsid[CLSID_MAX_LENGTH]; *clsid = '\0';
 
     /*
         COM will be handled correctly by cwASIO. No need for us to take care about this.
