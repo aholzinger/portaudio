@@ -515,18 +515,6 @@ if(NOT CMAKE_FRAMEWORK)
                 "${CMAKE_CURRENT_BINARY_DIR}/cmake/portaudio/PortAudioConfigVersion.cmake"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/portaudio")
 
-  if(PA_USE_CWASIO)
-    if(UNIX)
-      if(NOT APPLE)
-        install(TARGETS cwASIO_lib pevents_lib
-          LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-          ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-          RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        )
-      endif()
-    endif()
-  endif()
-
   if(NOT TARGET uninstall)
     configure_file(
       "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
