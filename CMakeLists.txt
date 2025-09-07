@@ -157,7 +157,7 @@ if(PA_USE_JACK)
   install(FILES cmake/modules/FindJACK.cmake DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/portaudio/modules")
 endif()
 
-option(PA_USE_CWASIO "Enable support for cwASIO" OFF)
+option(PA_USE_CWASIO "Enable support for cwASIO" ON)
 if(PA_USE_CWASIO)
   set(CWASIO_SHARED OFF)
   set(PA_USE_CWASIO_REPO "https://github.com/s13n/cwASIO.git" CACHE STRING "cwASIO repository to use")
