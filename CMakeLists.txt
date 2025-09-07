@@ -523,7 +523,6 @@ if(NOT CMAKE_FRAMEWORK)
           ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
           RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
         )
-        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cmake/FindPevents.cmake")
       endif()
     endif()
   endif()
