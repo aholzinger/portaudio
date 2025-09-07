@@ -466,8 +466,8 @@ elseif(UNIX)
       target_compile_definitions(PortAudio PUBLIC PA_USE_CWASIO=1)
       set(PKGCONFIG_CFLAGS "${PKGCONFIG_CFLAGS} -DPA_USE_CWASIO=1")
       target_link_libraries(PortAudio PRIVATE $<BUILD_INTERFACE:cwASIO::lib> $<BUILD_INTERFACE:pevents::lib>)
-      export(PortAudio-targets cwASIO_lib FILE FindPevents.cmake)
-      export(PortAudio-targets pevents_lib APPEND FILE FindPevents.cmake)
+#     export(TARGETS cwASIO_lib FILE FindPevents.cmake)
+#     export(TARGETS pevents_lib APPEND FILE FindPevents.cmake)
     else()
       set(DEF_EXCLUDE_CWASIO_SYMBOLS ";")
     endif()
@@ -514,6 +514,11 @@ if(NOT CMAKE_FRAMEWORK)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cmake/portaudio/PortAudioConfig.cmake"
                 "${CMAKE_CURRENT_BINARY_DIR}/cmake/portaudio/PortAudioConfigVersion.cmake"
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/portaudio")
+
+  if(PA_USE_CWASIO)
+    if(PA_USE_CWASIO)
+    endif()
+  endif()
 
   if(NOT TARGET uninstall)
     configure_file(
