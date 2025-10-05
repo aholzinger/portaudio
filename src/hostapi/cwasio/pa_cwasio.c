@@ -235,14 +235,14 @@ static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
 // Atomic increment and decrement operations
 #if MAC
     /* need to be implemented on Mac */
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return ++(*(long*)(v));}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return --(*(long*)(v));}
+    static inline long PaCwAsio_AtomicIncrement(volatile long* v) {return ++(*(long*)(v));}
+    static inline long PaCwAsio_AtomicDecrement(volatile long* v) {return --(*(long*)(v));}
 #elif WINDOWS
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement((long*)(v));}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement((long*)(v));}
+    static inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement((long*)(v));}
+    static inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement((long*)(v));}
 #else
-    inline long PaCwAsio_AtomicIncrement(volatile long* v) {return __sync_add_and_fetch((long*)(v), 1L);}
-    inline long PaCwAsio_AtomicDecrement(volatile long* v) {return __sync_sub_and_fetch((long*)(v), 1L);}
+    static inline long PaCwAsio_AtomicIncrement(volatile long* v) {return __sync_add_and_fetch((long*)(v), 1L);}
+    static inline long PaCwAsio_AtomicDecrement(volatile long* v) {return __sync_sub_and_fetch((long*)(v), 1L);}
 #endif
 
 
