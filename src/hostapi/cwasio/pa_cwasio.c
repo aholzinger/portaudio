@@ -114,9 +114,16 @@
 #endif
 
 enum {
+    NAME_MAX_LENGTH = 32,
     CLSID_MAX_LENGTH = 1024,
-    DESC_MAX_LENGTH = 128
+    DESC_MAX_LENGTH = 128,
+    MAX_CLOCK_SOURCES = 32
 };
+
+typedef struct NameAndDesc_ {
+    char* name;
+    char* desc;
+} NameAndDesc;
 
  #include <cwASIO.h>
 
@@ -275,7 +282,7 @@ PaCwAsioDriverInfo;
 
 typedef struct CwAsioDriverInfos
 {
-    CwAsioDriverInfo asioDriverInfos[32];
+    CwAsioDriverInfo asioDriverInfos[NAME_MAX_LENGTH];
     size_t size;
 }
 CwAsioDriverInfos;
@@ -314,10 +321,16 @@ PaCwAsioHostApiRepresentation;
 /* cwASIO convenience functions emulating the old ASIO SDK functions */
 static struct cwASIODriver* theAsioDriver = NULL;
 
-static cwASIOError cwASIOLoad(char const* path) {
+static cwASIOError cwASIOLoad(char const* driverName, char const* id) {
     if (theAsioDriver)
         return ASE_NoMemory;
-    return cwASIOload(path, &theAsioDriver);
+    long errorCode = cwASIOload(id, &theAsioDriver);
+    if (errorCode != 0 || driverName == NULL || theAsioDriver == NULL || theAsioDriver->lpVtbl == NULL)
+        return ASE_InvalidParameter;
+    cwASIOError result = theAsioDriver->lpVtbl->future(theAsioDriver, kcwASIOsetInstanceName, (void*) driverName);
+    if (result == ASE_SUCCESS)
+        result = ASE_OK;
+    return result;
 }
 
 static cwASIOError cwASIOUnload(void) {
@@ -1111,14 +1124,12 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
     return true;
 }
 
-static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, long maxDrivers )
+static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, NameAndDesc *namesAndDescs, long maxDrivers )
 {
     memset(cwAsioDriverInfos, 0, sizeof(CwAsioDriverInfos));
     int result = cwASIOenumerate( &cwAsioCallback, cwAsioDriverInfos);
     if ( result != 0 )
-    {
         return 0;
-    }
 
     long driverCount = 0;
     for ( size_t s = 0; s < cwAsioDriverInfos->size; ++s )
@@ -1126,11 +1137,15 @@ static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, 
         if ( driverCount >= maxDrivers )
             break;
 
-        if ( names )
-            if ( cwAsioDriverInfos->asioDriverInfos[s].desc && *cwAsioDriverInfos->asioDriverInfos[s].desc != '\0' )
-                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].desc);
-            else
-                strcpy( names[driverCount], cwAsioDriverInfos->asioDriverInfos[s].base.name);
+        if ( namesAndDescs )
+        {
+            if (cwAsioDriverInfos->asioDriverInfos[s].desc && *cwAsioDriverInfos->asioDriverInfos[s].desc != '\0') {
+                strncpy(namesAndDescs[driverCount].desc, cwAsioDriverInfos->asioDriverInfos[s].desc, DESC_MAX_LENGTH);
+                namesAndDescs[driverCount].desc[127] = '\0';
+            }
+            strncpy( namesAndDescs[driverCount].name, cwAsioDriverInfos->asioDriverInfos[s].base.name, NAME_MAX_LENGTH);
+            namesAndDescs[driverCount].name[31] = '\0';
+        }
         driverCount++;
     }
 
@@ -1141,23 +1156,30 @@ static long getDriverNames( CwAsioDriverInfos *cwAsioDriverInfos, char **names, 
     Retrieve <driverCount> driver names from ASIO, returned in a char**
     allocated in <group>.
 */
-static char **GetCwAsioDriverNames( PaCwAsioHostApiRepresentation *cwAsioHostApi, PaUtilAllocationGroup *group, long driverCount )
+static NameAndDesc *GetCwAsioDriverNames( PaCwAsioHostApiRepresentation *cwAsioHostApi, PaUtilAllocationGroup *group, long driverCount )
 {
-    char **result = 0;
+    NameAndDesc *result = 0;
     int i;
 
-    result =(char**)PaUtil_GroupAllocateZeroInitializedMemory(
-            group, sizeof(char*) * driverCount );
+    result =(NameAndDesc*)PaUtil_GroupAllocateZeroInitializedMemory(
+            group, sizeof(NameAndDesc) * driverCount );
     if( !result )
         goto error;
 
-    result[0] = (char*)PaUtil_GroupAllocateZeroInitializedMemory(
-            group, 32 * driverCount );
-    if( !result[0] )
+    result[0].name = (char*)PaUtil_GroupAllocateZeroInitializedMemory(
+            group, NAME_MAX_LENGTH * driverCount );
+    if( !result[0].name )
         goto error;
 
-    for( i=0; i<driverCount; ++i )
-        result[i] = result[0] + (32 * i);
+    result[0].desc = (char*)PaUtil_GroupAllocateZeroInitializedMemory(
+            group, DESC_MAX_LENGTH * driverCount );
+    if( !result[0].desc )
+        goto error;
+
+    for( i=0; i<driverCount; ++i ) {
+        result[i].name = result[0].name + (NAME_MAX_LENGTH  * i);
+        result[i].desc = result[0].desc + (DESC_MAX_LENGTH * i);
+    }
 
     getDriverNames( &cwAsioHostApi->driverInfos, result, driverCount );
 
@@ -1724,6 +1746,7 @@ static void SelectPaToAsioConverter( cwASIOSampleType type, PaCwAsioBufferConver
 typedef struct PaCwAsioDeviceInfo
 {
     PaDeviceInfo commonDeviceInfo;
+    char *driverName;
     long minBufferSize;
     long maxBufferSize;
     long preferredBufferSize;
@@ -1825,7 +1848,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
         goto error;
     }
 
-    if( cwASIOLoad( clsid ) != ASE_OK )
+    if( cwASIOLoad( driverName, clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
@@ -2040,7 +2063,7 @@ error_unload:
 static long cwAsioGetNumDevs()
 {
     CwAsioDriverInfos cwAsioDriverInfos;
-    long numDevs = getDriverNames( &cwAsioDriverInfos, NULL, 32U );
+    long numDevs = getDriverNames( &cwAsioDriverInfos, NULL, NAME_MAX_LENGTH );
     return numDevs;
 }
 
@@ -2060,7 +2083,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     int i, driverCount;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *deviceInfoArray;
-    char **names;
+    NameAndDesc *nameAndDescs;
     cwAsioHostApi = (PaCwAsioHostApiRepresentation*)PaUtil_AllocateZeroInitializedMemory( sizeof(PaCwAsioHostApiRepresentation) );
     if( !cwAsioHostApi )
     {
@@ -2102,8 +2125,8 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     if( driverCount > 0 )
     {
-        names = GetCwAsioDriverNames( cwAsioHostApi, cwAsioHostApi->allocations, driverCount );
-        if( !names )
+        nameAndDescs = GetCwAsioDriverNames( cwAsioHostApi, cwAsioHostApi->allocations, driverCount );
+        if( !nameAndDescs )
         {
             result = paInsufficientMemory;
             goto error;
@@ -2129,13 +2152,27 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             goto error;
         }
 
+        deviceInfoArray[0].driverName = (char*)PaUtil_GroupAllocateZeroInitializedMemory(
+                cwAsioHostApi->allocations, NAME_MAX_LENGTH * driverCount );
+        if( !deviceInfoArray[0].driverName )
+        {
+            result = paInsufficientMemory;
+            goto error;
+        }
+
+        for( i=0; i<driverCount; ++i ) {
+            deviceInfoArray[i].driverName = deviceInfoArray[0].driverName + (NAME_MAX_LENGTH  * i);
+            strncpy(deviceInfoArray[i].driverName, nameAndDescs[i].name, NAME_MAX_LENGTH);
+            deviceInfoArray[i].driverName[31] = '\0';
+        }
+
 #if _WINDOWS
         IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
 #endif
 
         for( i=0; i < driverCount; ++i )
         {
-            PA_DEBUG(("ASIO names[%d]:%s\n",i,names[i]));
+            PA_DEBUG(("ASIO nameAndDescs[%d].name:%s, nameAndDescs[%d].desc:%s\n",i,nameAndDescs[i].name,i,nameAndDescs[i].desc));
 
             // Since portaudio opens ALL ASIO drivers, and no one else does that,
             // we face fact that some drivers were not meant for it, drivers which act
@@ -2144,10 +2181,10 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             // so lets NOT try to load any such wrappers.
             // The ones i [davidv] know of so far are:
 
-            if (   strcmp (names[i],"ASIO DirectX Full Duplex Driver") == 0
-                || strcmp (names[i],"ASIO Multimedia Driver")          == 0
-                || strncmp(names[i],"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
-                || strncmp(names[i],"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
+            if (   strcmp (nameAndDescs[i].desc,"ASIO DirectX Full Duplex Driver") == 0
+                || strcmp (nameAndDescs[i].desc,"ASIO Multimedia Driver")          == 0
+                || strncmp(nameAndDescs[i].desc,"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
+                || strncmp(nameAndDescs[i].desc,"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
                )
             {
                 PA_DEBUG(("BLACKLISTED!!!\n"));
@@ -2159,7 +2196,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             {
                 /* ASIO Digidesign Driver uses PACE copy protection which quits out
                    if a debugger is running. So we don't load it if a debugger is running. */
-                if( strcmp(names[i], "ASIO Digidesign Driver") == 0 )
+                if( strcmp(nameAndDescs[i].desc, "ASIO Digidesign Driver") == 0 )
                 {
                     PA_DEBUG(("BLACKLISTED!!! ASIO Digidesign Driver would quit the debugger\n"));
                     continue;
@@ -2175,9 +2212,9 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 deviceInfo->structVersion = 2;
                 deviceInfo->hostApi = hostApiIndex;
 
-                deviceInfo->name = names[i];
+                deviceInfo->name = nameAndDescs[i].desc;
 
-                if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, names[i], i, deviceInfo, cwAsioDeviceInfo) == paNoError )
+                if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, nameAndDescs[i].name, i, deviceInfo, cwAsioDeviceInfo) == paNoError )
                 {
                     (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
                     ++(*hostApi)->info.deviceCount;
@@ -2349,7 +2386,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     /* open the device if it's not already open */
     if( cwAsioHostApi->openAsioDeviceIndex == paNoDevice )
     {
-        result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+        result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->driverInfos.asioDriverInfos[asioDeviceIndex].base.name,
                 driverInfo, cwAsioHostApi->systemSpecific );
         if( result != paNoError )
             return result;
@@ -2750,8 +2787,8 @@ static bool IsUsingExternalClockSource()
 {
     bool result = false;
     cwASIOError asioError;
-    struct cwASIOClockSource clocks[32];
-    long numSources=32;
+    struct cwASIOClockSource clocks[MAX_CLOCK_SOURCES];
+    long numSources=MAX_CLOCK_SOURCES;
 
     /* davidv: listing ASIO Clock sources. there is an ongoing investigation by
        me about whether or not to call cwASIOSetSampleRate if an external Clock is
@@ -2968,7 +3005,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->inheritedHostApiRep.deviceInfos[ asioDeviceIndex ]->name,
+    result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->driverInfos.asioDriverInfos[asioDeviceIndex].base.name,
             driverInfo, cwAsioHostApi->systemSpecific );
     if( result == paNoError )
         asioIsInitialized = 1;
@@ -4923,7 +4960,7 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
         goto error;
     }
 
-    if( cwASIOLoad( clsid ) != ASE_OK )
+    if( cwASIOLoad( cwAsioHostApi->openAsioDriverInfo.cwAsioDriverInfo.base.name , clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         goto error;
