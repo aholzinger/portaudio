@@ -2083,7 +2083,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     int i, driverCount;
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *deviceInfoArray;
-    NameAndDesc *nameAndDescs;
+    NameAndDesc *namesAndDescs;
     cwAsioHostApi = (PaCwAsioHostApiRepresentation*)PaUtil_AllocateZeroInitializedMemory( sizeof(PaCwAsioHostApiRepresentation) );
     if( !cwAsioHostApi )
     {
@@ -2125,8 +2125,8 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     if( driverCount > 0 )
     {
-        nameAndDescs = GetCwAsioDriverNames( cwAsioHostApi, cwAsioHostApi->allocations, driverCount );
-        if( !nameAndDescs )
+        namesAndDescs = GetCwAsioDriverNames( cwAsioHostApi, cwAsioHostApi->allocations, driverCount );
+        if( !namesAndDescs )
         {
             result = paInsufficientMemory;
             goto error;
@@ -2162,7 +2162,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
         for( i=0; i<driverCount; ++i ) {
             deviceInfoArray[i].driverName = deviceInfoArray[0].driverName + (NAME_MAX_LENGTH  * i);
-            strncpy(deviceInfoArray[i].driverName, nameAndDescs[i].name, NAME_MAX_LENGTH);
+            strncpy(deviceInfoArray[i].driverName, namesAndDescs[i].name, NAME_MAX_LENGTH);
             deviceInfoArray[i].driverName[31] = '\0';
         }
 
@@ -2173,7 +2173,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         int deviceIndex = 0;
         for( i=0; i < driverCount; ++i )
         {
-            PA_DEBUG(("ASIO nameAndDescs[%d].name:%s, nameAndDescs[%d].desc:%s\n",i,nameAndDescs[i].name,i,nameAndDescs[i].desc));
+            PA_DEBUG(("ASIO namesAndDescs[%d].name:%s, namesAndDescs[%d].desc:%s\n",i,namesAndDescs[i].name,i,namesAndDescs[i].desc));
 
             // Since portaudio opens ALL ASIO drivers, and no one else does that,
             // we face fact that some drivers were not meant for it, drivers which act
@@ -2182,10 +2182,10 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             // so lets NOT try to load any such wrappers.
             // The ones i [davidv] know of so far are:
 
-            if (   strcmp (nameAndDescs[i].desc,"ASIO DirectX Full Duplex Driver") == 0
-                || strcmp (nameAndDescs[i].desc,"ASIO Multimedia Driver")          == 0
-                || strncmp(nameAndDescs[i].desc,"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
-                || strncmp(nameAndDescs[i].desc,"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
+            if (   strcmp (namesAndDescs[i].desc,"ASIO DirectX Full Duplex Driver") == 0
+                || strcmp (namesAndDescs[i].desc,"ASIO Multimedia Driver")          == 0
+                || strncmp(namesAndDescs[i].desc,"Premiere",8)                      == 0   //"Premiere Elements Windows Sound 1.0"
+                || strncmp(namesAndDescs[i].desc,"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
                )
             {
                 PA_DEBUG(("BLACKLISTED!!!\n"));
@@ -2197,7 +2197,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             {
                 /* ASIO Digidesign Driver uses PACE copy protection which quits out
                    if a debugger is running. So we don't load it if a debugger is running. */
-                if( strcmp(nameAndDescs[i].desc, "ASIO Digidesign Driver") == 0 )
+                if( strcmp(namesAndDescs[i].desc, "ASIO Digidesign Driver") == 0 )
                 {
                     PA_DEBUG(("BLACKLISTED!!! ASIO Digidesign Driver would quit the debugger\n"));
                     continue;
@@ -2210,12 +2210,12 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 PaCwAsioDeviceInfo *cwAsioDeviceInfo = &deviceInfoArray[deviceIndex];
                 PaDeviceInfo *deviceInfo = &cwAsioDeviceInfo->commonDeviceInfo;
 
-                if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, nameAndDescs[i].name, i, deviceInfo, cwAsioDeviceInfo) == paNoError )
+                if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, namesAndDescs[i].name, i, deviceInfo, cwAsioDeviceInfo) == paNoError )
                 {
-                    cwAsioDeviceInfo->driverName = nameAndDescs[i].name;
+                    cwAsioDeviceInfo->driverName = namesAndDescs[i].name;
                     deviceInfo->structVersion    = 2;
                     deviceInfo->hostApi          = hostApiIndex;
-                    deviceInfo->name             = nameAndDescs[i].desc;
+                    deviceInfo->name             = namesAndDescs[i].desc;
 
                     (*hostApi)->deviceInfos[deviceIndex] = deviceInfo;
                     deviceIndex++;
