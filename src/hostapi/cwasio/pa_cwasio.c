@@ -1935,13 +1935,13 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
     result = LoadAsioDriver( cwAsioHostApi, driverName, &paCwAsioDriver.info, cwAsioHostApi->systemSpecific );
     if( result == paNoError )
     {
-        PA_DEBUG(("PaAsio_Initialize: drv:%d name                     = %s\n", driverIndex,deviceInfo->name));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels            = %d\n", driverIndex, paAsioDriver.info.inputChannelCount));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels           = %d\n", driverIndex, paAsioDriver.info.outputChannelCount));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMinSize            = %d\n", driverIndex, paAsioDriver.info.bufferMinSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMaxSize            = %d\n", driverIndex, paAsioDriver.info.bufferMaxSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferPreferredSize      = %d\n", driverIndex, paAsioDriver.info.bufferPreferredSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferGranularity        = %d\n", driverIndex, paAsioDriver.info.bufferGranularity));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d name                     = %s\n", driverIndex, deviceInfo->name));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels            = %d\n", driverIndex, paCwAsioDriver.info.inputChannelCount));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels           = %d\n", driverIndex, paCwAsioDriver.info.outputChannelCount));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMinSize            = %d\n", driverIndex, paCwAsioDriver.info.bufferMinSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMaxSize            = %d\n", driverIndex, paCwAsioDriver.info.bufferMaxSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferPreferredSize      = %d\n", driverIndex, paCwAsioDriver.info.bufferPreferredSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferGranularity        = %d\n", driverIndex, paCwAsioDriver.info.bufferGranularity));
 
         deviceInfo->maxInputChannels  = paCwAsioDriver.info.inputChannelCount;
         deviceInfo->maxOutputChannels = paCwAsioDriver.info.outputChannelCount;
