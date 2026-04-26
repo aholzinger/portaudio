@@ -226,7 +226,7 @@ static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
         case ASE_SPNotAdvancing:    result = "Hardware is not running when sample position is inquired"; break;
         case ASE_NoClock:           result = "Sample clock or rate cannot be determined or is not present"; break;
         case ASE_NoMemory:          result = "Not enough memory for completing the request"; break;
-        default:                    result = "Unknown ASIO error"; break;
+        default:                    result = "Unknown cwASIO error"; break;
     }
 
     return result;
@@ -1844,14 +1844,14 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
     if (paError != paNoError || *clsid == '\0')
     {
         result = paUnanticipatedHostError;
-        PA_CWASIO_SET_LAST_HOST_ERROR(0, "Failed to gett CLSID for ASIO driver");
+        PA_CWASIO_SET_LAST_HOST_ERROR(0, "Failed to gett CLSID for cwASIO driver");
         goto error;
     }
 
     if( cwASIOLoad( driverName, clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
-        PA_CWASIO_SET_LAST_HOST_ERROR( 0, "Failed to load ASIO driver" );
+        PA_CWASIO_SET_LAST_HOST_ERROR( 0, "Failed to load cwASIO driver" );
         goto error;
     }
     else
@@ -1935,13 +1935,13 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
     result = LoadAsioDriver( cwAsioHostApi, driverName, &paCwAsioDriver.info, cwAsioHostApi->systemSpecific );
     if( result == paNoError )
     {
-        PA_DEBUG(("PaAsio_Initialize: drv:%d name = %s\n",  driverIndex,deviceInfo->name));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels       = %d\n", driverIndex, paAsioDriver.info.inputChannelCount));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels      = %d\n", driverIndex, paAsioDriver.info.outputChannelCount));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMinSize       = %d\n", driverIndex, paAsioDriver.info.bufferMinSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMaxSize       = %d\n", driverIndex, paAsioDriver.info.bufferMaxSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferPreferredSize = %d\n", driverIndex, paAsioDriver.info.bufferPreferredSize));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferGranularity   = %d\n", driverIndex, paAsioDriver.info.bufferGranularity));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d name                     = %s\n", driverIndex,deviceInfo->name));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d inputChannels            = %d\n", driverIndex, paAsioDriver.info.inputChannelCount));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d outputChannels           = %d\n", driverIndex, paAsioDriver.info.outputChannelCount));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMinSize            = %d\n", driverIndex, paAsioDriver.info.bufferMinSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferMaxSize            = %d\n", driverIndex, paAsioDriver.info.bufferMaxSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferPreferredSize      = %d\n", driverIndex, paAsioDriver.info.bufferPreferredSize));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d bufferGranularity        = %d\n", driverIndex, paAsioDriver.info.bufferGranularity));
 
         deviceInfo->maxInputChannels  = paCwAsioDriver.info.inputChannelCount;
         deviceInfo->maxOutputChannels = paCwAsioDriver.info.outputChannelCount;
@@ -1959,7 +1959,7 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
             }
         }
 
-        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultSampleRate = %f\n", driverIndex, deviceInfo->defaultSampleRate));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultSampleRate        = %f\n", driverIndex, deviceInfo->defaultSampleRate));
 
         if( foundDefaultSampleRate ){
 
@@ -1994,9 +1994,9 @@ static PaError InitPaDeviceInfoFromAsioDriver( PaCwAsioHostApiRepresentation *cw
             deviceInfo->defaultHighOutputLatency = 0.;
         }
 
-        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowInputLatency = %f\n", driverIndex, deviceInfo->defaultLowInputLatency));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowOutputLatency = %f\n", driverIndex, deviceInfo->defaultLowOutputLatency));
-        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultHighInputLatency = %f\n", driverIndex, deviceInfo->defaultHighInputLatency));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowInputLatency   = %f\n", driverIndex, deviceInfo->defaultLowInputLatency));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultLowOutputLatency  = %f\n", driverIndex, deviceInfo->defaultLowOutputLatency));
+        PA_DEBUG(("PaAsio_Initialize: drv:%d defaultHighInputLatency  = %f\n", driverIndex, deviceInfo->defaultHighInputLatency));
         PA_DEBUG(("PaAsio_Initialize: drv:%d defaultHighOutputLatency = %f\n", driverIndex, deviceInfo->defaultHighOutputLatency));
 
         cwAsioDeviceInfo->minBufferSize = paCwAsioDriver.info.bufferMinSize;
@@ -2122,6 +2122,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     /* driverCount is the number of installed drivers - not necessarily
         the number of installed physical devices. */
     driverCount = cwAsioGetNumDevs();
+    PA_DEBUG(("cwASIO driverCount = %d\n", driverCount));
 
     if( driverCount > 0 )
     {
@@ -2160,7 +2161,8 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             goto error;
         }
 
-        for( i=0; i<driverCount; ++i ) {
+        for( i=0; i<driverCount; ++i )
+        {
             deviceInfoArray[i].driverName = deviceInfoArray[0].driverName + (NAME_MAX_LENGTH  * i);
             strncpy(deviceInfoArray[i].driverName, namesAndDescs[i].name, NAME_MAX_LENGTH);
             deviceInfoArray[i].driverName[31] = '\0';
@@ -2173,7 +2175,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         int deviceIndex = 0;
         for( i=0; i < driverCount; ++i )
         {
-            PA_DEBUG(("ASIO namesAndDescs[%d].name:%s, namesAndDescs[%d].desc:%s\n",i,namesAndDescs[i].name,i,namesAndDescs[i].desc));
+            PA_DEBUG(("cwASIO nameAndDescs[%d].name:%s, namesAndDescs[%d].desc:%s\n",i,namesAndDescs[i].name,i,namesAndDescs[i].desc));
 
             // Since portaudio opens ALL ASIO drivers, and no one else does that,
             // we face fact that some drivers were not meant for it, drivers which act
@@ -2188,7 +2190,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 || strncmp(namesAndDescs[i].desc,"Adobe",5)                         == 0   //"Adobe Default Windows Sound 1.5"
                )
             {
-                PA_DEBUG(("BLACKLISTED!!!\n"));
+                PA_DEBUG(("BLACKLISTED %s!!!\n", namesAndDescs[i].desc));
                 continue;
             }
 
@@ -2210,6 +2212,10 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 PaCwAsioDeviceInfo *cwAsioDeviceInfo = &deviceInfoArray[deviceIndex];
                 PaDeviceInfo *deviceInfo = &cwAsioDeviceInfo->commonDeviceInfo;
 
+                PA_DEBUG(("cwASIO deviceIndex           = %d\n", deviceIndex));
+                PA_DEBUG(("cwAsioDeviceInfo             = %p\n", cwAsioDeviceInfo));
+                PA_DEBUG(("cwAsioDeviceInfo->driverName = %s\n", cwAsioDeviceInfo->driverName));
+
                 if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, namesAndDescs[i].name, i, deviceInfo, cwAsioDeviceInfo) == paNoError )
                 {
                     cwAsioDeviceInfo->driverName = namesAndDescs[i].name;
@@ -2217,12 +2223,22 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     deviceInfo->hostApi          = hostApiIndex;
                     deviceInfo->name             = namesAndDescs[i].desc;
 
+                    PA_DEBUG(("Using cwASIO device %s with cwASIO driver index %d and PaUtilHostApiRepresentation::deviceInfos index %d\n",
+                        namesAndDescs[i].name, i, deviceIndex));
+                    PA_DEBUG(("\t\tdeviceInfo                    = %p\n" , deviceInfo));
+                    PA_DEBUG(("\t\tdeviceInfo->structVersion     = %d\n" , deviceInfo->structVersion));
+                    PA_DEBUG(("\t\tdeviceInfo->name              = %s\n" , deviceInfo->name));
+                    PA_DEBUG(("\t\tdeviceInfo->hostApi           = %d\n" , (int)deviceInfo->hostApi));
+                    PA_DEBUG(("\t\tdeviceInfo->maxInputChannels  = %d\n" , deviceInfo->maxInputChannels));
+                    PA_DEBUG(("\t\tdeviceInfo->maxOutputChannels = %d\n" , deviceInfo->maxOutputChannels));
+                    PA_DEBUG(("\t\tdeviceInfo->defaultSampleRate = %lf\n", deviceInfo->defaultSampleRate));
+
                     (*hostApi)->deviceInfos[deviceIndex] = deviceInfo;
                     deviceIndex++;
                 }
                 else
                 {
-                    PA_DEBUG(("Skipping ASIO device:%s\n",names[i]));
+                    PA_DEBUG(("Skipping cwASIO device %s with cwASIO driver index %d\n",namesAndDescs[i].name, i));
                     continue;
                 }
             }
@@ -2232,11 +2248,13 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
     if( (*hostApi)->info.deviceCount > 0 )
     {
+        PA_DEBUG(("cwASIO default device = 0\n"));
         (*hostApi)->info.defaultInputDevice = 0;
         (*hostApi)->info.defaultOutputDevice = 0;
     }
     else
     {
+        PA_DEBUG(("No cwASIO default device\n"));
         (*hostApi)->info.defaultInputDevice = paNoDevice;
         (*hostApi)->info.defaultOutputDevice = paNoDevice;
     }
@@ -2312,7 +2330,10 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* full duplex ASIO stream must use the same device for input and output */
 
         if( inputParameters->device != outputParameters->device )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: inputParameters->device != outputParameters->device\n"));
             return paBadIODeviceCombination;
+        }
     }
 
     if( inputParameters )
@@ -2323,13 +2344,19 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* all standard sample formats are supported by the buffer adapter,
             this implementation doesn't support any custom sample formats */
         if( inputSampleFormat & paCustomFormat )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: inputSampleFormat & paCustomFormat\n"));
             return paSampleFormatNotSupported;
+        }
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( inputParameters->device == paUseHostApiSpecificDeviceSpecification )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: inputParameters->device == paUseHostApiSpecificDeviceSpecification\n"));
             return paInvalidDevice;
+        }
 
         asioDeviceIndex = inputParameters->device;
 
@@ -2351,13 +2378,19 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         /* all standard sample formats are supported by the buffer adapter,
             this implementation doesn't support any custom sample formats */
         if( outputSampleFormat & paCustomFormat )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: outputSampleFormat & paCustomFormat\n"));
             return paSampleFormatNotSupported;
+        }
 
         /* unless alternate device specification is supported, reject the use of
             paUseHostApiSpecificDeviceSpecification */
 
         if( outputParameters->device == paUseHostApiSpecificDeviceSpecification )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: outputParameters->device == paUseHostApiSpecificDeviceSpecification\n"));
             return paInvalidDevice;
+        }
 
         asioDeviceIndex = outputParameters->device;
 
@@ -2371,13 +2404,14 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         outputChannelCount = 0;
     }
 
-
+    PA_DEBUG(("pa_cwasio: IsFormatSupported: cwAsioHostApi->openAsioDeviceIndex = %d, asioDeviceIndex = %d\n", (int)cwAsioHostApi->openAsioDeviceIndex, (int)asioDeviceIndex));
 
     /* if an ASIO device is open we can only get format information for the currently open device */
 
     if( cwAsioHostApi->openAsioDeviceIndex != paNoDevice
             && cwAsioHostApi->openAsioDeviceIndex != asioDeviceIndex )
     {
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: cwAsioHostApi->openAsioDeviceIndex != paNoDevice && cwAsioHostApi->openAsioDeviceIndex != asioDeviceIndex\n"));
         return paDeviceUnavailable;
     }
 
@@ -2390,9 +2424,15 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     {
         char const *driverName = ((PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex])->driverName;
 
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: driverName = %s\n", driverName));
+
         result = LoadAsioDriver( cwAsioHostApi, driverName, driverInfo, cwAsioHostApi->systemSpecific );
         if( result != paNoError )
+        {
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: LoadAsioDriver(cwAsioHostApi, %s, driverInfo, cwAsioHostApi->systemSpecific) failed with PaError %d\n",
+                driverName, (int)result));
             return result;
+        }
     }
 
     /* check that input device can support inputChannelCount */
@@ -2401,6 +2441,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( inputChannelCount > driverInfo->inputChannelCount )
         {
             result = paInvalidChannelCount;
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: inputChannelCount > driverInfo->inputChannelCount\n"));
             goto done;
         }
     }
@@ -2411,6 +2452,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
         if( outputChannelCount > driverInfo->outputChannelCount )
         {
             result = paInvalidChannelCount;
+            PA_DEBUG(("pa_cwasio: IsFormatSupported: outputChannelCount > driverInfo->outputChannelCount\n"));
             goto done;
         }
     }
@@ -2420,6 +2462,7 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     if( asioError == ASE_NoClock || asioError == ASE_NotPresent )
     {
         result = paInvalidSampleRate;
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: asioError == ASE_NoClock || asioError == ASE_NotPresent\n"));
         goto done;
     }
 
@@ -2431,9 +2474,15 @@ done:
     }
 
     if( result == paNoError )
+    {
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: paFormatIsSupported\n"));
         return paFormatIsSupported;
+    }
     else
+    {
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: !paFormatIsSupported: %d\n", (int)result));
         return result;
+    }
 }
 
 
@@ -2799,7 +2848,7 @@ static bool IsUsingExternalClockSource()
 
     asioError = cwASIOGetClockSources(clocks, &numSources);
     if( asioError != ASE_OK ){
-        PA_DEBUG(("ERROR: cwASIOGetClockSources: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOGetClockSources: %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
     }else{
         PA_DEBUG(("INFO cwASIOGetClockSources listing %d clocks\n", numSources ));
         for (int i=0;i<numSources;++i){
@@ -2827,7 +2876,7 @@ static PaError ValidateAndSetSampleRate( double sampleRate )
     if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
-        PA_DEBUG(("ERROR: cwASIOCanSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOCanSampleRate: %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
 
@@ -2839,7 +2888,7 @@ static PaError ValidateAndSetSampleRate( double sampleRate )
     if( asioError != ASE_OK )
     {
         result = paInvalidSampleRate;
-        PA_DEBUG(("ERROR: cwASIOGetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOGetSampleRate: %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
         goto error;
     }
     PA_DEBUG(("cwASIOGetSampleRate:%f\n",oldRate));
@@ -2863,7 +2912,7 @@ static PaError ValidateAndSetSampleRate( double sampleRate )
         if( asioError != ASE_OK )
         {
             result = paInvalidSampleRate;
-            PA_DEBUG(("ERROR: cwASIOSetSampleRate: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+            PA_DEBUG(("ERROR: cwASIOSetSampleRate: %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
             goto error;
         }
         PA_DEBUG(("after cwASIOSetSampleRate(%f)\n",sampleRate));
@@ -2956,6 +3005,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         asioDeviceIndex = inputParameters->device;
 
+        PA_DEBUG(("OpenStream asioDeviceIndex = inputParameters->device = %d\n", (int)asioDeviceIndex));
+
         PaCwAsioDeviceInfo *cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
 
         /* validate hostApiSpecificStreamInfo */
@@ -2986,6 +3037,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         asioDeviceIndex = outputParameters->device;
 
+        PA_DEBUG(("OpenStream asioDeviceIndex = outputParameters->device = %d\n", (int)asioDeviceIndex));
+        
         PaCwAsioDeviceInfo * cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
 
         /* validate hostApiSpecificStreamInfo */
@@ -2994,7 +3047,11 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
             cwAsioDeviceInfo->commonDeviceInfo.maxOutputChannels,
             &outputChannelSelectors
         );
-        if( result != paNoError ) return result;
+        if( result != paNoError )
+        {
+            PA_DEBUG(("OpenStream ValidateAsioSpecificStreamInfo failed with error = %d\n", (int)result));
+            return result;
+        }
     }
     else
     {
@@ -3015,7 +3072,8 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( result == paNoError )
         asioIsInitialized = 1;
     else{
-        PA_DEBUG(("OpenStream ERROR1 - LoadAsioDriver returned %d\n", result));
+        PA_DEBUG(("OpenStream ERROR1 - LoadAsioDriver(cwAsioHostApi, %s, driverInfo, cwAsioHostApi->systemSpecific) returned %d\n",
+            asioDeviceInfo->driverName, result));
         goto error;
     }
 
@@ -3295,7 +3353,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         */
         cwASIOSampleType inputType = stream->asioChannelInfos[0].type;
 
-        PA_DEBUG(("ASIO Input  type:%d",inputType));
+        PA_DEBUG(("cwASIO Input  type:%d",inputType));
         CwAsioSampleTypeLOG(inputType);
         hostInputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( inputType );
 
@@ -3316,7 +3374,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         */
         cwASIOSampleType outputType = stream->asioChannelInfos[inputChannelCount].type;
 
-        PA_DEBUG(("ASIO Output type:%d",outputType));
+        PA_DEBUG(("cwASIO Output type:%d",outputType));
         CwAsioSampleTypeLOG(outputType);
         hostOutputSampleFormat = AsioSampleTypeToPaNativeSampleFormat( outputType );
 
@@ -3464,7 +3522,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                the buffer processor latency nor the blocking i/o latency. It
                reports the added latency separately.
             */
-            PA_DEBUG(("PaAsio : ASIO InputLatency = %ld (%ld ms),\n         added buffProc:%ld (%ld ms),\n         added blocking:%ld (%ld ms)\n",
+            PA_DEBUG(("PaAsio : cwASIO InputLatency = %ld (%ld ms),\n         added buffProc:%ld (%ld ms),\n         added blocking:%ld (%ld ms)\n",
                 stream->asioInputLatencyFrames,
                 (long)( stream->asioInputLatencyFrames * (1000.0 / sampleRate) ),
                 PaUtil_GetBufferProcessorInputLatencyFrames(&stream->bufferProcessor),
@@ -3555,7 +3613,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
                the buffer processor latency nor the blocking i/o latency. It
                reports the added latency separately.
             */
-            PA_DEBUG(("PaAsio : ASIO OutputLatency = %ld (%ld ms),\n         added buffProc:%ld (%ld ms),\n         added blocking:%ld (%ld ms)\n",
+            PA_DEBUG(("PaAsio : cwASIO OutputLatency = %ld (%ld ms),\n         added buffProc:%ld (%ld ms),\n         added blocking:%ld (%ld ms)\n",
                 stream->asioOutputLatencyFrames,
                 (long)( stream->asioOutputLatencyFrames * (1000.0 / sampleRate) ),
                 PaUtil_GetBufferProcessorOutputLatencyFrames(&stream->bufferProcessor),
@@ -3611,14 +3669,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
 
         // the code below prints the ASIO latency which doesn't include the
         // buffer processor latency. it reports the added latency separately
-        PA_DEBUG(("PaAsio : ASIO InputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
+        PA_DEBUG(("PaAsio : cwASIO InputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
                 stream->asioInputLatencyFrames,
                 (long)((stream->asioInputLatencyFrames*1000)/ sampleRate),
                 PaUtil_GetBufferProcessorInputLatencyFrames(&stream->bufferProcessor),
                 (long)((PaUtil_GetBufferProcessorInputLatencyFrames(&stream->bufferProcessor)*1000)/ sampleRate)
                 ));
 
-        PA_DEBUG(("PaAsio : ASIO OuputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
+        PA_DEBUG(("PaAsio : cwASIO OuputLatency = %ld (%ld ms), added buffProc:%ld (%ld ms)\n",
                 stream->asioOutputLatencyFrames,
                 (long)((stream->asioOutputLatencyFrames*1000)/ sampleRate),
                 PaUtil_GetBufferProcessorOutputLatencyFrames(&stream->bufferProcessor),
@@ -4991,7 +5049,7 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
         asioIsInitialized = 1;
     }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOInit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+PA_DEBUG(("PaCwAsio_ShowControlPanel: cwASIOInit(): %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
 PA_DEBUG(("asioVersion: cwASIOInit(): %ld\n",   asioDriverInfo.asioVersion ));
 PA_DEBUG(("driverVersion: cwASIOInit(): %ld\n", asioDriverInfo.driverVersion ));
 PA_DEBUG(("Name: cwASIOInit(): %s\n",           asioDriverInfo.name ));
@@ -5000,13 +5058,13 @@ PA_DEBUG(("ErrorMessage: cwASIOInit(): %s\n",   asioDriverInfo.errorMessage ));
     asioError = cwASIOControlPanel();
     if( asioError != ASE_OK )
     {
-        PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("PaCwAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
         result = paUnanticipatedHostError;
         PA_CWASIO_SET_LAST_ASIO_ERROR( asioError );
         goto error;
     }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+PA_DEBUG(("PaCwAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
 
     asioError = cwASIOExit();
     if( asioError != ASE_OK )
@@ -5017,7 +5075,7 @@ PA_DEBUG(("PaAsio_ShowControlPanel: ASIOControlPanel(): %s\n", PaAsio_GetAsioErr
         goto error;
     }
 
-PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOExit(): %s\n", PaAsio_GetAsioErrorText(asioError) ));
+PA_DEBUG(("PaCwAsio_ShowControlPanel: cwASIOExit(): %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
 
     cwASIOUnload();
 
