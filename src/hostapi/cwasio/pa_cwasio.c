@@ -2325,6 +2325,12 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     PaDeviceIndex asioDeviceIndex;
     cwASIOError asioError;
 
+    if( inputParameters == NULL && outputParameters == NULL )
+    {
+        PA_DEBUG(("pa_cwasio: IsFormatSupported: inputParameters == NULL && outputParameters == NULL\n"));
+        return paInvalidDevice;
+    }
+
     if( inputParameters && outputParameters )
     {
         /* full duplex ASIO stream must use the same device for input and output */
