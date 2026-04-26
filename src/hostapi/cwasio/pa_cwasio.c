@@ -2170,6 +2170,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
         IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
 #endif
 
+        int deviceIndex = 0;
         for( i=0; i < driverCount; ++i )
         {
             PA_DEBUG(("ASIO nameAndDescs[%d].name:%s, nameAndDescs[%d].desc:%s\n",i,nameAndDescs[i].name,i,nameAndDescs[i].desc));
@@ -2206,18 +2207,18 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
 
             /* Attempt to init device info from the asio driver... */
             {
-                PaCwAsioDeviceInfo *cwAsioDeviceInfo = &deviceInfoArray[ (*hostApi)->info.deviceCount ];
+                PaCwAsioDeviceInfo *cwAsioDeviceInfo = &deviceInfoArray[deviceIndex];
                 PaDeviceInfo *deviceInfo = &cwAsioDeviceInfo->commonDeviceInfo;
-
-                deviceInfo->structVersion = 2;
-                deviceInfo->hostApi = hostApiIndex;
-
-                deviceInfo->name = nameAndDescs[i].desc;
 
                 if( InitPaDeviceInfoFromAsioDriver( cwAsioHostApi, nameAndDescs[i].name, i, deviceInfo, cwAsioDeviceInfo) == paNoError )
                 {
-                    (*hostApi)->deviceInfos[ (*hostApi)->info.deviceCount ] = deviceInfo;
-                    ++(*hostApi)->info.deviceCount;
+                    cwAsioDeviceInfo->driverName = nameAndDescs[i].name;
+                    deviceInfo->structVersion    = 2;
+                    deviceInfo->hostApi          = hostApiIndex;
+                    deviceInfo->name             = nameAndDescs[i].desc;
+
+                    (*hostApi)->deviceInfos[deviceIndex] = deviceInfo;
+                    deviceIndex++;
                 }
                 else
                 {
@@ -2226,6 +2227,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                 }
             }
         }
+        (*hostApi)->info.deviceCount = deviceIndex;
     }
 
     if( (*hostApi)->info.deviceCount > 0 )
@@ -2386,8 +2388,9 @@ static PaError IsFormatSupported( struct PaUtilHostApiRepresentation *hostApi,
     /* open the device if it's not already open */
     if( cwAsioHostApi->openAsioDeviceIndex == paNoDevice )
     {
-        result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->driverInfos.asioDriverInfos[asioDeviceIndex].base.name,
-                driverInfo, cwAsioHostApi->systemSpecific );
+        char const *driverName = ((PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex])->driverName;
+
+        result = LoadAsioDriver( cwAsioHostApi, driverName, driverInfo, cwAsioHostApi->systemSpecific );
         if( result != paNoError )
             return result;
     }
@@ -3001,12 +3004,14 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     }
 
     driverInfo = &cwAsioHostApi->openAsioDriverInfo;
+    PaCwAsioDeviceInfo *asioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
+
+    PA_DEBUG(("pa_cwasio: OpenStream: driverName = %s\n", asioDeviceInfo->driverName));
 
     /* NOTE: we load the driver and use its current settings
         rather than the ones in our device info structure which may be stale */
 
-    result = LoadAsioDriver( cwAsioHostApi, cwAsioHostApi->driverInfos.asioDriverInfos[asioDeviceIndex].base.name,
-            driverInfo, cwAsioHostApi->systemSpecific );
+    result = LoadAsioDriver( cwAsioHostApi, asioDeviceInfo->driverName, driverInfo, cwAsioHostApi->systemSpecific );
     if( result == paNoError )
         asioIsInitialized = 1;
     else{
@@ -3186,7 +3191,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
     if( asioError != ASE_OK
             && framesPerHostBuffer != (unsigned long)driverInfo->bufferPreferredSize )
     {
-        PA_DEBUG(("ERROR: cwASIOCreateBuffers: %s\n", PaAsio_GetAsioErrorText(asioError) ));
+        PA_DEBUG(("ERROR: cwASIOCreateBuffers: %s\n", PaCwAsio_GetAsioErrorText(asioError) ));
         /*
             Some buggy drivers (like the Hoontech DSP24) give incorrect
             [min, preferred, max] values They should work with the preferred size
