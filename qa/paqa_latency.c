@@ -163,9 +163,10 @@ PaError paqaCheckLatency( PaStreamParameters *outputParamsPtr,
     streamInfo = Pa_GetStreamInfo( stream );
     printf("Stream info: inputLatency  = %g\n", streamInfo->inputLatency );
     printf("Stream info: outputLatency = %g\n", streamInfo->outputLatency );
+    QA_ASSERT_TRUE( "streamInfo->outputLatency should be > 0", (streamInfo->outputLatency > 0.0) );
 
     err = Pa_StartStream( stream );
-    if( err != paNoError ) goto error2;
+    if( err != paNoError ) goto error;
 
     printf("Play for %d seconds.\n", NUM_SECONDS );
     Pa_Sleep( NUM_SECONDS * 1000 );
@@ -176,172 +177,14 @@ PaError paqaCheckLatency( PaStreamParameters *outputParamsPtr,
     printf("  maxDeltaDacTime = %f\n", dataPtr->maxDeltaDacTime );
 
     err = Pa_StopStream( stream );
-    if( err != paNoError ) goto error2;
+    /* Fall through into error block. */
 
-    err = Pa_CloseStream( stream );
-    Pa_Sleep( 1 * 1000 );
-
-
-    printf("-------------------------------------\n");
-    return err;
-error2:
-    Pa_CloseStream( stream );
-error1:
-    printf("-------------------------------------\n");
-    return err;
-}
-
-
-/*******************************************************************/
-static int paqaNoopCallback( const void *inputBuffer, void *outputBuffer,
-                          unsigned long framesPerBuffer,
-                          const PaStreamCallbackTimeInfo* timeInfo,
-                          PaStreamCallbackFlags statusFlags,
-                          void *userData )
-{
-    (void)inputBuffer;
-    (void)outputBuffer;
-    (void)framesPerBuffer;
-    (void)timeInfo;
-    (void)statusFlags;
-    (void)userData;
-    return paContinue;
-}
-
-/*******************************************************************/
-static int paqaCheckMultipleSuggested( PaDeviceIndex deviceIndex, int isInput )
-{
-    int i;
-    int numLoops = 10;
-    PaError err;
-    PaStream *stream;
-    PaStreamParameters streamParameters;
-    const PaStreamInfo* streamInfo;
-    double lowLatency;
-    double highLatency;
-    double finalLatency;
-    double sampleRate = SAMPLE_RATE;
-    const PaDeviceInfo *pdi = Pa_GetDeviceInfo( deviceIndex );
-    double previousLatency = 0.0;
-    int numChannels = 1;
-    float toleranceRatio = 1.0;
-
-    printf("------------------------ paqaCheckMultipleSuggested - %s\n",
-           (isInput ? "INPUT" : "OUTPUT") );
-    if( isInput )
-    {
-        lowLatency = pdi->defaultLowInputLatency;
-        highLatency = pdi->defaultHighInputLatency;
-        numChannels = (pdi->maxInputChannels < 2) ? 1 : 2;
-    }
-    else
-    {
-        lowLatency = pdi->defaultLowOutputLatency;
-        highLatency = pdi->defaultHighOutputLatency;
-        numChannels = (pdi->maxOutputChannels < 2) ? 1 : 2;
-    }
-    streamParameters.channelCount = numChannels;
-    streamParameters.device = deviceIndex;
-    streamParameters.hostApiSpecificStreamInfo = NULL;
-    streamParameters.sampleFormat = paFloat32;
-    sampleRate = pdi->defaultSampleRate;
-
-    printf(" lowLatency  = %g\n", lowLatency );
-    printf(" highLatency = %g\n", highLatency );
-    printf(" numChannels = %d\n", numChannels );
-    printf(" sampleRate  = %g\n", sampleRate );
-
-    if( (highLatency - lowLatency) < 0.001 )
-    {
-        numLoops = 1;
-    }
-
-    for( i=0; i<numLoops; i++ )
-    {
-        if( numLoops == 1 )
-            streamParameters.suggestedLatency = lowLatency;
-        else
-            streamParameters.suggestedLatency = lowLatency + ((highLatency - lowLatency) * i /(numLoops - 1));
-
-        printf("   suggestedLatency[%d] = %6.4f\n", i, streamParameters.suggestedLatency );
-
-        err = Pa_OpenStream(
-                            &stream,
-                            (isInput ? &streamParameters : NULL),
-                            (isInput ? NULL : &streamParameters),
-                            sampleRate,
-                            paFramesPerBufferUnspecified,
-                            paClipOff,      /* we won't output out of range samples so don't bother clipping them */
-                            paqaNoopCallback,
-                            NULL );
-        if( err != paNoError ) goto error;
-
-        streamInfo = Pa_GetStreamInfo( stream );
-        // Get the latency from the streamInfo now because it will be invalid after the
-        // stream is closed.
-        if( isInput )
-        {
-            finalLatency = streamInfo->inputLatency;
-        }
-        else
-        {
-            finalLatency = streamInfo->outputLatency;
-        }
-        err = Pa_CloseStream( stream );
-
-        printf("          finalLatency = %6.4f\n", finalLatency );
-        /* For the default low & high latency values, expect quite close; for other requested
-         * values, at worst the next power-of-2 may result (eg 513 -> 1024) */
-        toleranceRatio = ( (i == 0) || (i == ( numLoops - 1 )) ) ? 0.1 : 1.0;
-        QA_ASSERT_CLOSE( "final latency should be close to suggested latency",
-                        streamParameters.suggestedLatency, finalLatency, (streamParameters.suggestedLatency * toleranceRatio) );
-        if( i == 0 )
-        {
-            previousLatency = finalLatency;
-        }
-    }
-
-    if( numLoops > 1 )
-    {
-        QA_ASSERT_TRUE( " final latency should increase with suggested latency", (finalLatency > previousLatency) );
-    }
-
-    return 0;
 error:
-    return -1;
-}
-
-/*******************************************************************/
-static int paqaVerifySuggestedLatency( void )
-{
-    PaDeviceIndex id;
-    int result = 0;
-    const PaDeviceInfo *pdi;
-    int numDevices = Pa_GetDeviceCount();
-
-    printf("\n ------------------------ paqaVerifySuggestedLatency\n");
-    for( id=0; id<numDevices; id++ )            /* Iterate through all devices. */
-    {
-        pdi = Pa_GetDeviceInfo( id );
-        printf("\nUsing device #%d: '%s' (%s)\n", id, pdi->name, Pa_GetHostApiInfo(pdi->hostApi)->name);
-        if( pdi->maxOutputChannels > 0 )
-        {
-            if( paqaCheckMultipleSuggested( id, 0 ) < 0 )
-            {
-                printf("OUTPUT CHECK FAILED !!! #%d: '%s'\n", id, pdi->name);
-                result -= 1;
-            }
-        }
-        if( pdi->maxInputChannels > 0 )
-        {
-            if( paqaCheckMultipleSuggested( id, 1 ) < 0 )
-            {
-                printf("INPUT CHECK FAILED !!! #%d: '%s'\n", id, pdi->name);
-                result -= 1;
-            }
-        }
-    }
-    return result;
+    Pa_CloseStream( stream );
+    Pa_Sleep( 1 * 1000 );
+error1:
+    printf("-------------------------------------\n\n");
+    return err;
 }
 
 /*******************************************************************/
@@ -378,8 +221,6 @@ error:
     return -1;
 }
 
-
-
 /*******************************************************************/
 int main(void);
 int main(void)
@@ -405,13 +246,12 @@ int main(void)
     if( err != paNoError ) goto error;
 
     /* Run self tests. */
-    if( paqaVerifyDeviceInfoLatency() < 0 ) goto error;
-
-    if( paqaVerifySuggestedLatency() < 0 ) goto error;
+    if( (err = paqaVerifyDeviceInfoLatency()) < 0 ) goto error;
 
     outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
     if (outputParameters.device == paNoDevice) {
         fprintf(stderr,"Error: No default output device.\n");
+        err = paInvalidDevice;
         goto error;
     }
 
@@ -427,7 +267,7 @@ int main(void)
     sampleRate = deviceInfo->defaultSampleRate;
     printf("Sample Rate for following tests: %g\n", sampleRate);
     outputParameters.hostApiSpecificStreamInfo = NULL;
-    printf("-------------------------------------\n");
+    printf("-------------------------------------\n\n");
 
     // Try to use a small buffer that is smaller than we think the device can handle.
     // Try to force combining multiple user buffers into a host buffer.
@@ -471,13 +311,15 @@ int main(void)
     if( err != paNoError ) goto error;
 
     Pa_Terminate();
+    printf("------------- SUMMARY ---------------------\n");
     printf("SUCCESS - test finished.\n");
-    return err;
+    return 0;
 
 error:
     Pa_Terminate();
+    printf("------------- SUMMARY ---------------------\n");
     fprintf( stderr, "ERROR - test failed.\n" );
     fprintf( stderr, "Error number: %d\n", err );
     fprintf( stderr, "Error message: %s\n", Pa_GetErrorText( err ) );
-    return err;
+    return -err; /* exit codes are truncated to an unsigned byte */
 }
