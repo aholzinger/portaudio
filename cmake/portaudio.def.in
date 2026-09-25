@@ -66,4 +66,10 @@ PaUtil_SetDebugPrintFunction        @55
 @DEF_EXCLUDE_WMME_SYMBOLS@PaWinMME_GetStreamOutputHandleCount   @73
 @DEF_EXCLUDE_WMME_SYMBOLS@PaWinMME_GetStreamOutputHandle        @74
 @DEF_EXCLUDE_WASAPI_SYMBOLS@PaWasapi_IsLoopback                 @75
+@DEF_EXCLUDE_DS_SYMBOLS@PaWinDS_GetDeviceGUID                  @76
+@DEF_EXCLUDE_CWASIO_SYMBOLS@PaCwAsio_GetAvailableBufferSizes   @77
+@DEF_EXCLUDE_CWASIO_SYMBOLS@PaCwAsio_ShowControlPanel          @78
+@DEF_EXCLUDE_CWASIO_SYMBOLS@PaCwAsio_GetInputChannelName       @79
+@DEF_EXCLUDE_CWASIO_SYMBOLS@PaCwAsio_GetOutputChannelName      @80
+@DEF_EXCLUDE_CWASIO_SYMBOLS@PaCwAsio_SetStreamSampleRate       @81
 ; add new host-API-specific public functions here. DO NOT CHANGE EXISTING ORDINALS!

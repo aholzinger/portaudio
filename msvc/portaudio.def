@@ -63,4 +63,5 @@ PaWinMME_GetStreamInputHandle       @72
 PaWinMME_GetStreamOutputHandleCount @73
 PaWinMME_GetStreamOutputHandle      @74
 PaWasapi_IsLoopback                 @75
+PaWinDS_GetDeviceGUID               @76
 ; add new host-API-specific public functions here. DO NOT CHANGE EXISTING ORDINALS!

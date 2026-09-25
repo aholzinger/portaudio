@@ -316,6 +316,8 @@ if(WIN32)
     if(NOT MINGW)
       target_compile_definitions(portaudio PRIVATE PAWIN_USE_DIRECTSOUNDFULLDUPLEXCREATE)
     endif()
+  else()
+    set(DEF_EXCLUDE_DS_SYMBOLS ";")
   endif()
 
   option(PA_USE_WMME "Enable support for WMME" ON)
