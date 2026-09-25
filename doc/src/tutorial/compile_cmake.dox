@@ -288,6 +288,7 @@ This section contains options that configure your build. Some options are specif
     - **`-DPA_ALSA_DYNAMIC=ON|OFF`**: Dynamically load libasound with dlopen using @ref PaAlsa_SetLibraryPathName. Off by default[3].
 - **`-DPA_USE_ASIO=ON|OFF`**: (Windows Only). Use the ASIO host API. Requires the ASIO SDK[1].
 - **`-DPA_USE_AUDIOIO=ON|OFF`**: (Solaris Only). Use the audioio host API.
+- **`-DPA_USE_CWASIO=ON|OFF`**: (Windows and Linux/Unix-like/etc., not macOS). Use the cwASIO host API, which accesses ASIO drivers without the ASIO SDK[4].
 - **`-DPA_USE_DS=ON|OFF`**: (Windows Only). Use the DirectSound host API.
 - **`-DPA_USE_JACK=ON|OFF`**: Use the JACK host API. Requires JACK.
 - **`-DPA_USE_OSS=ON|OFF`**: (Linux/Unix-like/etc. Only). Use the OSS host API[2]. Requires OSS.
@@ -305,12 +306,14 @@ This section contains options that configure your build. Some options are specif
 
 [3] Unlike the other options in this section, `PA_ALSA_DYNAMIC` defaults to `OFF`.
 
+[4] When `PA_USE_CWASIO` is enabled, CMake downloads cwASIO and its dependency pevents with git while configuring. Use `-DPA_USE_CWASIO_REPO=<url>` and `-DPA_USE_CWASIO_TAG=<commit>`, or `-DPA_USE_PEVENTS_REPO=<url>` and `-DPA_USE_PEVENTS_TAG=<commit>`, to build from a different repository or revision.
+
 @subsubsection compile_cmake_options_pa_misc Miscellaneous Build Options
 
 - **`-DPA_BUILD_SHARED_LIBS=ON|OFF`**: Builds PortAudio as a shared library instead of a static one. Default: `OFF`
 - **`-DPA_BUILD_TESTS=ON|OFF`**: Builds all tests. Default: `OFF`
 - **`-DPA_BUILD_EXAMPLES=ON|OFF`**: Builds all examples. Default: `OFF`
-- **`-DPA_DLL_LINK_WITH_STATIC_RUNTIME`**: (Windows Only). Links PortAudio with static runtime dependencies.
+- **`-DPA_BUILD_WITH_STATIC_RUNTIME=ON|OFF`**: (MSVC Only). Builds PortAudio with the static instead of the DLL runtime libraries, for both shared and static PortAudio builds. Only applies when PortAudio is the top-level CMake project. Default: `OFF`
 - **`-DPA_ENABLE_DEBUG_OUTPUT=ON|OFF`**: Enables debugging output. Default: `OFF`
 - **`-DPA_WARNINGS_ARE_ERRORS=ON|OFF`**: Treats all warnings as errors. Mostly of interest to developers. Default: `OFF`
 
