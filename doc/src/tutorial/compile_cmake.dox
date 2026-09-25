@@ -306,7 +306,7 @@ This section contains options that configure your build. Some options are specif
 
 [3] Unlike the other options in this section, `PA_ALSA_DYNAMIC` defaults to `OFF`.
 
-[4] When `PA_USE_CWASIO` is enabled, CMake downloads cwASIO and its dependency pevents with git while configuring. Use `-DPA_USE_CWASIO_REPO=<url>` and `-DPA_USE_CWASIO_TAG=<commit>`, or `-DPA_USE_PEVENTS_REPO=<url>` and `-DPA_USE_PEVENTS_TAG=<commit>`, to build from a different repository or revision.
+[4] When `PA_USE_CWASIO` is enabled, CMake downloads cwASIO and its dependency pevents with git while configuring. Use `-DPA_USE_CWASIO_REPO=<url>` and `-DPA_USE_CWASIO_TAG=<commit>`, or `-DPA_USE_PEVENTS_REPO=<url>` and `-DPA_USE_PEVENTS_TAG=<commit>`, to build from a different repository or revision. The two revisions can also be set with the environment variables `PA_USE_CWASIO_TAG` and `PA_USE_PEVENTS_TAG`.
 
 @subsubsection compile_cmake_options_pa_misc Miscellaneous Build Options
 
