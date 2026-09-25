@@ -46,6 +46,8 @@
 #include "portaudio.h"
 #include "pa_win_waveformat.h"
 
+#include <guiddef.h> /* for GUID, used by PaWinDS_GetDeviceGUID() */
+
 #ifdef __cplusplus
 extern "C"
 {
