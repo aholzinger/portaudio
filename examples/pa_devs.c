@@ -54,10 +54,10 @@
 #if PA_USE_ASIO
 #include "pa_asio.h"
 #endif
-
-#if PA_USE_ASIO
-#include "pa_cwasio.h"
 #endif
+
+#if PA_USE_CWASIO
+#include "pa_cwasio.h"
 #endif
 
 /*******************************************************************/
@@ -186,7 +186,7 @@ int main(void)
         printf( "Default high output latency = %8.4f\n", deviceInfo->defaultHighOutputLatency  );
 
 #ifdef WIN32
-#if PA_USE_ASIO || PA_USE_CWASIO
+#if PA_USE_ASIO
 /* ASIO specific latency information */
         if( Pa_GetHostApiInfo( deviceInfo->hostApi )->type == paASIO ){
             long minLatency, maxLatency, preferredLatency, granularity;
@@ -203,8 +203,27 @@ int main(void)
             else
                 printf( "ASIO buffer granularity     = %ld\n", granularity  );
         }
-#endif /* PA_USE_ASIO || PA_USE_CWASIO */
+#endif /* PA_USE_ASIO */
 #endif /* WIN32 */
+
+#if PA_USE_CWASIO
+/* cwASIO specific latency information */
+        if( Pa_GetHostApiInfo( deviceInfo->hostApi )->type == paCwASIO ){
+            long minLatency, maxLatency, preferredLatency, granularity;
+
+            err = PaCwAsio_GetAvailableBufferSizes( i,
+                    &minLatency, &maxLatency, &preferredLatency, &granularity );
+
+            printf( "cwASIO minimum buffer size  = %ld\n", minLatency  );
+            printf( "cwASIO maximum buffer size  = %ld\n", maxLatency  );
+            printf( "cwASIO preferred buffer size= %ld\n", preferredLatency  );
+
+            if( granularity == -1 )
+                printf( "cwASIO buffer granularity   = power of 2\n" );
+            else
+                printf( "cwASIO buffer granularity   = %ld\n", granularity  );
+        }
+#endif /* PA_USE_CWASIO */
 
         printf( "Default sample rate         = %8.2f\n", deviceInfo->defaultSampleRate );
 
