@@ -172,47 +172,56 @@ endif()
 
 option(PA_USE_CWASIO "Enable support for cwASIO" ON)
 if(PA_USE_CWASIO)
-  set(CWASIO_SHARED OFF)
-  set(PA_USE_CWASIO_REPO "https://github.com/s13n/cwASIO.git" CACHE STRING "cwASIO repository to use")
-  if(NOT PA_USE_CWASIO_TAG)
-      if(DEFINED ENV{PA_USE_CWASIO_TAG})
-          set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
-      else()
-          set(PA_USE_CWASIO_TAG "1d53e4e696468adfcb91c098e576f11589324096")   # set default tag, when neither cache nor environment variable found.
-      endif()
+  # When embedded in a parent project that already provides cwASIO (or pevents), use its targets
+  # instead of fetching and adding a second copy, which would fail with duplicate target names.
+  if(NOT TARGET cwASIO::lib)
+    set(CWASIO_SHARED OFF)
+    set(PA_USE_CWASIO_REPO "https://github.com/s13n/cwASIO.git" CACHE STRING "cwASIO repository to use")
+    if(NOT PA_USE_CWASIO_TAG)
+        if(DEFINED ENV{PA_USE_CWASIO_TAG})
+            set(PA_USE_CWASIO_TAG $ENV{PA_USE_CWASIO_TAG})
+        else()
+            set(PA_USE_CWASIO_TAG "1d53e4e696468adfcb91c098e576f11589324096")   # set default tag, when neither cache nor environment variable found.
+        endif()
+    endif()
+
+    FetchContent_Declare(cwASIO_build
+        GIT_TAG         ${PA_USE_CWASIO_TAG}
+        GIT_REPOSITORY  ${PA_USE_CWASIO_REPO}
+    )
+    message(STATUS "Fetching cwASIO sources ${PA_USE_CWASIO_TAG} from git at ${PA_USE_CWASIO_REPO}")
+    FetchContent_GetProperties(cwASIO_build)
+    if(NOT cwasio_build_POPULATED)
+        FetchContent_Populate(cwASIO_build)
+        message(STATUS "Building cwASIO in ${cwasio_build_BINARY_DIR} from sources in ${cwasio_build_SOURCE_DIR}")
+        add_subdirectory(${cwasio_build_SOURCE_DIR} ${cwasio_build_BINARY_DIR} EXCLUDE_FROM_ALL)
+    endif()
   endif()
 
-  FetchContent_Declare(cwASIO_build
-      GIT_TAG         ${PA_USE_CWASIO_TAG}
-      GIT_REPOSITORY  ${PA_USE_CWASIO_REPO}
-  )
-  message(STATUS "Fetching cwASIO sources ${PA_USE_CWASIO_TAG} from git at ${PA_USE_CWASIO_REPO}")
-  FetchContent_GetProperties(cwASIO_build)
-  if(NOT cwasio_build_POPULATED)
-      FetchContent_Populate(cwASIO_build)
-      message(STATUS "Building cwASIO in ${cwasio_build_BINARY_DIR} from sources in ${cwasio_build_SOURCE_DIR}")
-      add_subdirectory(${cwasio_build_SOURCE_DIR} ${cwasio_build_BINARY_DIR} EXCLUDE_FROM_ALL)
-  endif()
+  if(NOT TARGET pevents::lib)
+    # Build pevents as a static library, like cwASIO. A shared pevents_lib would have to be part of
+    # the PortAudio-targets export set when PortAudio itself is built as a shared library.
+    set(PEVENTS_SHARED OFF)
+    set(PA_USE_PEVENTS_REPO "https://github.com/aholzinger/pevents.git" CACHE STRING "pevents repository to use")
+    if(NOT PA_USE_PEVENTS_TAG)
+        if(DEFINED ENV{PA_USE_PEVENTS_TAG})
+            set(PA_USE_PEVENTS_TAG $ENV{PA_USE_PEVENTS_TAG})
+        else()
+            set(PA_USE_PEVENTS_TAG "8a108a7602b587647acbc99f8eee4177cdd7d0fc")   # set default tag, when neither cache nor environment variable found.
+        endif()
+    endif()
 
-  set(PA_USE_PEVENTS_REPO "https://github.com/aholzinger/pevents.git" CACHE STRING "pevents repository to use")
-  if(NOT PA_USE_PEVENTS_TAG)
-      if(DEFINED ENV{PA_USE_PEVENTS_TAG})
-          set(PA_USE_PEVENTS_TAG $ENV{PA_USE_PEVENTS_TAG})
-      else()
-          set(PA_USE_PEVENTS_TAG "8a108a7602b587647acbc99f8eee4177cdd7d0fc")   # set default tag, when neither cache nor environment variable found.
-      endif()
-  endif()
-
-  FetchContent_Declare(pevents_build
-      GIT_TAG         ${PA_USE_PEVENTS_TAG}
-      GIT_REPOSITORY  ${PA_USE_PEVENTS_REPO}
-  )
-  message(STATUS "Fetching pevents sources ${PA_USE_PEVENTS_TAG} from git at ${PA_USE_PEVENTS_REPO}")
-  FetchContent_GetProperties(pevents_build)
-  if(NOT pevents_build_POPULATED)
-      FetchContent_Populate(pevents_build)
-      message(STATUS "Building pevents in ${pevents_build_BINARY_DIR} from sources in ${pevents_build_SOURCE_DIR}")
-      add_subdirectory(${pevents_build_SOURCE_DIR} ${pevents_build_BINARY_DIR} EXCLUDE_FROM_ALL)
+    FetchContent_Declare(pevents_build
+        GIT_TAG         ${PA_USE_PEVENTS_TAG}
+        GIT_REPOSITORY  ${PA_USE_PEVENTS_REPO}
+    )
+    message(STATUS "Fetching pevents sources ${PA_USE_PEVENTS_TAG} from git at ${PA_USE_PEVENTS_REPO}")
+    FetchContent_GetProperties(pevents_build)
+    if(NOT pevents_build_POPULATED)
+        FetchContent_Populate(pevents_build)
+        message(STATUS "Building pevents in ${pevents_build_BINARY_DIR} from sources in ${pevents_build_SOURCE_DIR}")
+        add_subdirectory(${pevents_build_SOURCE_DIR} ${pevents_build_BINARY_DIR} EXCLUDE_FROM_ALL)
+    endif()
   endif()
 endif()
 
