@@ -85,15 +85,14 @@
 
 #include <assert.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
-#if _WINDOWS
+#ifdef _WIN32
     #include <windows.h>
     #include <mmsystem.h>
 #else
+    #include <errno.h>
     #include <time.h>
-    #include <unistd.h>
     typedef uint32_t DWORD;
 #endif
 
@@ -109,9 +108,9 @@
 #include "pa_process.h"
 #include "pa_debugprint.h"
 #include "pa_ringbuffer.h"
+#include "pa_endianness.h"
 
-#if _WINDOWS
-    #include "pa_win_coinitialize.h"
+#ifdef _WIN32
     #include "pa_win_util.h"
 #endif
 
@@ -119,7 +118,8 @@ enum {
     NAME_MAX_LENGTH = 32,
     CLSID_MAX_LENGTH = 1024,
     DESC_MAX_LENGTH = 128,
-    MAX_CLOCK_SOURCES = 32
+    MAX_CLOCK_SOURCES = 32,
+    MAX_DRIVERS = 32
 };
 
 typedef struct NameAndDesc_ {
@@ -127,15 +127,7 @@ typedef struct NameAndDesc_ {
     char* desc;
 } NameAndDesc;
 
- #include <cwASIO.h>
-
-/* winmm.lib is needed for timeGetTime() (this is in winmm.a if you're using gcc) */
-#if defined(WIN32)
-    #define WINDOWS 1
-    #if (defined(_MSC_VER) && (_MSC_VER >= 1200)) /* MSC version 6 and above */
-        #pragma comment(lib, "winmm.lib")
-    #endif
-#endif
+#include <cwASIO.h>
 
 
 /* prototypes for functions declared in this file */
@@ -188,21 +180,21 @@ static struct cwASIOCallbacks asioCallbacks_ =
 
 
 #define PA_CWASIO_SET_LAST_HOST_ERROR( errorCode, errorText ) \
-    PaUtil_SetLastHostErrorInfo( paASIO, errorCode, errorText )
+    PaUtil_SetLastHostErrorInfo( paCwASIO, errorCode, errorText )
 
 
 static void PaCwAsio_SetLastSystemError( DWORD errorCode )
 {
-#if _WINDOWS
+#ifdef _WIN32
     PaWinUtil_SetLastSystemErrorInfo( paCwASIO, errorCode );
 #else
-    PaUtil_SetLastHostErrorInfo( paASIO, errorCode, "system error" );
+    PaUtil_SetLastHostErrorInfo( paCwASIO, errorCode, "system error" );
 #endif
 }
 
 static DWORD getLastError()
 {
-#if _WINDOWS
+#ifdef _WIN32
     return GetLastError();
 #else
     DWORD result = (DWORD) errno;
@@ -242,11 +234,7 @@ static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
 
 
 // Atomic increment and decrement operations
-#if MAC
-    /* need to be implemented on Mac */
-    static inline long PaCwAsio_AtomicIncrement(volatile long* v) {return ++(*(long*)(v));}
-    static inline long PaCwAsio_AtomicDecrement(volatile long* v) {return --(*(long*)(v));}
-#elif WINDOWS
+#ifdef _WIN32
     static inline long PaCwAsio_AtomicIncrement(volatile long* v) {return InterlockedIncrement((long*)(v));}
     static inline long PaCwAsio_AtomicDecrement(volatile long* v) {return InterlockedDecrement((long*)(v));}
 #else
@@ -256,12 +244,6 @@ static const char* PaCwAsio_GetAsioErrorText( cwASIOError asioError )
 
 
 
-// Sleep function that sleeps for milliseconds
-#if WINDOWS
-    void PaCwAsio_SleepMilliseconds(unsigned milliseconds) {Sleep(milliseconds);}
-#else
-    void PaCwAsio_SleepMilliseconds(unsigned milliseconds) {useconds_t usec = milliseconds * 1000U; usleep(usec);}
-#endif
 
 
 
@@ -284,7 +266,7 @@ PaCwAsioDriverInfo;
 
 typedef struct CwAsioDriverInfos
 {
-    CwAsioDriverInfo asioDriverInfos[NAME_MAX_LENGTH];
+    CwAsioDriverInfo asioDriverInfos[MAX_DRIVERS];
     size_t size;
 }
 CwAsioDriverInfos;
@@ -1457,9 +1439,10 @@ static void ConvertFloat32ToFloat64( void *buffer, long shift, long count )
         *out-- = *in--;
 }
 
-#ifdef WINDOWS
-#undef PA_MSB_IS_NATIVE_
+#if defined(PA_LITTLE_ENDIAN)
 #define PA_LSB_IS_NATIVE_
+#elif defined(PA_BIG_ENDIAN)
+#define PA_MSB_IS_NATIVE_
 #endif
 
 typedef void PaCwAsioBufferConverter( void *, long, long );
@@ -1857,7 +1840,7 @@ static PaError LoadAsioDriver( PaCwAsioHostApiRepresentation *cwAsioHostApi, con
     if (paError != paNoError || *clsid == '\0')
     {
         result = paUnanticipatedHostError;
-        PA_CWASIO_SET_LAST_HOST_ERROR(0, "Failed to gett CLSID for cwASIO driver");
+        PA_CWASIO_SET_LAST_HOST_ERROR(0, "Failed to get CLSID for cwASIO driver");
         goto error;
     }
 
@@ -2076,19 +2059,9 @@ error_unload:
 static long cwAsioGetNumDevs()
 {
     CwAsioDriverInfos cwAsioDriverInfos;
-    long numDevs = getDriverNames( &cwAsioDriverInfos, NULL, NAME_MAX_LENGTH );
+    long numDevs = getDriverNames( &cwAsioDriverInfos, NULL, MAX_DRIVERS );
     return numDevs;
 }
-
-#if _WINDOWS
-    /* we look up IsDebuggerPresent at runtime incase it isn't present (on Win95 for example) */
-    typedef BOOL (WINAPI *IsDebuggerPresentPtr)(VOID);
-    static IsDebuggerPresentPtr IsDebuggerPresent_ = NULL;
-    //static FARPROC IsDebuggerPresent_ = 0; // this is the current way to do it apparently according to davidv
-#else
-    typedef bool (*IsDebuggerPresentPtr)(void);
-    static IsDebuggerPresentPtr IsDebuggerPresent_ = NULL;
-#endif
 
 PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiIndex hostApiIndex )
 {
@@ -2127,7 +2100,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     (*hostApi)->info.name = "cwASIO";
     (*hostApi)->info.deviceCount = 0;
 
-    #ifdef WINDOWS
+    #ifdef _WIN32
         /* use desktop window as system specific ptr */
         cwAsioHostApi->systemSpecific = GetDesktopWindow();
     #endif
@@ -2181,10 +2154,6 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             deviceInfoArray[i].driverName[31] = '\0';
         }
 
-#if _WINDOWS
-        IsDebuggerPresent_ = (IsDebuggerPresentPtr)GetProcAddress( LoadLibraryA( "Kernel32.dll" ), "IsDebuggerPresent" );
-#endif
-
         int deviceIndex = 0;
         for( i=0; i < driverCount; ++i )
         {
@@ -2208,7 +2177,8 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
             }
 
 
-            if( IsDebuggerPresent_ && IsDebuggerPresent_() )
+#ifdef _WIN32
+            if( IsDebuggerPresent() )
             {
                 /* ASIO Digidesign Driver uses PACE copy protection which quits out
                    if a debugger is running. So we don't load it if a debugger is running. */
@@ -2218,6 +2188,7 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
                     continue;
                 }
             }
+#endif
 
 
             /* Attempt to init device info from the asio driver... */
@@ -3858,7 +3829,7 @@ static void bufferSwitch(long index, cwASIOBool directProcess)
 #if NATIVE_INT64
     #define ASIO64toDouble(a)  (a)
 #else
-    const double twoRaisedTo32 = 4294967296.;
+    static const double twoRaisedTo32 = 4294967296.;
     #define ASIO64toDouble(a)  ((a).lo + (a).hi * twoRaisedTo32)
 #endif
 
@@ -3882,43 +3853,6 @@ static struct cwASIOTime *bufferSwitchTimeInfo( struct cwASIOTime *timeInfo, lon
     */
 
     (void) directProcess; /* suppress unused parameter warning */
-
-#if 0
-    // store the timeInfo for later use
-    asioDriverInfo.tInfo = *timeInfo;
-
-    // get the time stamp of the buffer, not necessary if no
-    // synchronization to other media is required
-
-    if (timeInfo->timeInfo.flags & kSystemTimeValid)
-            asioDriverInfo.nanoSeconds = ASIO64toDouble(timeInfo->timeInfo.systemTime);
-    else
-            asioDriverInfo.nanoSeconds = 0;
-
-    if (timeInfo->timeInfo.flags & kSamplePositionValid)
-            asioDriverInfo.samples = ASIO64toDouble(timeInfo->timeInfo.samplePosition);
-    else
-            asioDriverInfo.samples = 0;
-
-    if (timeInfo->timeCode.flags & kTcValid)
-            asioDriverInfo.tcSamples = ASIO64toDouble(timeInfo->timeCode.timeCodeSamples);
-    else
-            asioDriverInfo.tcSamples = 0;
-
-    // get the system reference time
-    asioDriverInfo.sysRefTime = get_sys_reference_time();
-#endif
-
-#if 0
-    // a few debug messages for the Windows device driver developer
-    // tells you the time when driver got its interrupt and the delay until the app receives
-    // the event notification.
-    static double last_samples = 0;
-    char tmp[128];
-    sprintf (tmp, "diff: %d / %d ms / %d ms / %d samples                 \n", asioDriverInfo.sysRefTime - (long)(asioDriverInfo.nanoSeconds / 1000000.0), asioDriverInfo.sysRefTime, (long)(asioDriverInfo.nanoSeconds / 1000000.0), (long)(asioDriverInfo.samples - last_samples));
-    OutputDebugString (tmp);
-    last_samples = asioDriverInfo.samples;
-#endif
 
 
     if( !theAsioStream )
@@ -3976,51 +3910,6 @@ static struct cwASIOTime *bufferSwitchTimeInfo( struct cwASIOTime *timeInfo, lon
             }
             else
             {
-
-#if 0
-/*
-    see: "ASIO callback underflow/overflow buffer slip detection doesn't work"
-    http://www.portaudio.com/trac/ticket/110
-*/
-
-// test code to try to detect slip conditions... these may work on some systems
-// but neither of them work on the RME Digi96
-
-// check that sample delta matches buffer size (otherwise we must have skipped
-// a buffer.
-static double last_samples = -512;
-double samples;
-//if( timeInfo->timeCode.flags & kTcValid )
-//    samples = ASIO64toDouble(timeInfo->timeCode.timeCodeSamples);
-//else
-    samples = ASIO64toDouble(timeInfo->timeInfo.samplePosition);
-int delta = samples - last_samples;
-//printf( "%d\n", delta);
-last_samples = samples;
-
-if( delta > theAsioStream->framesPerHostCallback )
-{
-    if( theAsioStream->inputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paInputOverflow;
-
-    if( theAsioStream->outputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paOutputUnderflow;
-}
-
-// check that the buffer index is not the previous index (which would indicate
-// that a buffer was skipped.
-static int previousIndex = 1;
-if( index == previousIndex )
-{
-    if( theAsioStream->inputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paInputOverflow;
-
-    if( theAsioStream->outputChannelCount > 0 )
-        theAsioStream->callbackFlags |= paOutputUnderflow;
-}
-previousIndex = index;
-#endif
-
                 int i;
 
                 PaUtil_BeginCpuLoadMeasurement( &theAsioStream->cpuLoadMeasurer );
@@ -4042,25 +3931,6 @@ previousIndex = index;
                 paTimeInfo.inputBufferAdcTime = paTimeInfo.currentTime - theAsioStream->streamRepresentation.streamInfo.inputLatency;
                 paTimeInfo.outputBufferDacTime = paTimeInfo.currentTime + theAsioStream->streamRepresentation.streamInfo.outputLatency;
                 */
-
-/* Disabled! Stopping and re-starting the stream causes an input overflow / output underflow. S.Fischer */
-#if 0
-// detect underflows by checking inter-callback time > 2 buffer period
-static double previousTime = -1;
-if( previousTime > 0 ){
-
-    double delta = paTimeInfo.currentTime - previousTime;
-
-    if( delta >= 2. * (theAsioStream->framesPerHostCallback / theAsioStream->streamRepresentation.streamInfo.sampleRate) ){
-        if( theAsioStream->inputChannelCount > 0 )
-            theAsioStream->callbackFlags |= paInputOverflow;
-
-        if( theAsioStream->outputChannelCount > 0 )
-            theAsioStream->callbackFlags |= paOutputUnderflow;
-    }
-}
-previousTime = paTimeInfo.currentTime;
-#endif
 
                 // note that the above input and output times do not need to be
                 // adjusted for the latency of the buffer processor -- the buffer
@@ -4359,7 +4229,7 @@ static void EnsureCallbackHasCompleted( PaAsioStream *stream )
     int count = 2000;  // only wait for 2 seconds, rather than hanging.
     while( stream->reenterCount != -1 && count > 0 )
     {
-        PaCwAsio_SleepMilliseconds(1U);
+        Pa_Sleep( 1 );
         --count;
     }
 }
@@ -4496,7 +4366,7 @@ static PaTime GetStreamTime( PaStream *s )
 {
     (void) s; /* unused parameter */
 
-#if WINDOWS
+#ifdef _WIN32
     return (double)timeGetTime() * .001;
 #else
     struct timespec tp = { 0 };
@@ -5011,7 +4881,7 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     /*
         COM will be handled correctly by cwASIO. No need for us to take care about this.
     */
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paCwASIO );
     if( result != paNoError )
         goto error;
 
@@ -5125,7 +4995,7 @@ PaError PaCwAsio_GetInputChannelName( PaDeviceIndex device, int channelIndex,
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
 
 
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paCwASIO );
     if( result != paNoError )
         goto error;
 
@@ -5158,7 +5028,7 @@ PaError PaCwAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
     PaCwAsioDeviceInfo * cwAsioDeviceInfo;
 
 
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paCwASIO );
     if( result != paNoError )
         goto error;
 
@@ -5198,7 +5068,7 @@ static PaError GetAsioStreamPointer( PaAsioStream **stream, PaStream *s )
     if( result != paNoError )
         return result;
 
-    result = PaUtil_GetHostApiRepresentation( &hostApi, paASIO );
+    result = PaUtil_GetHostApiRepresentation( &hostApi, paCwASIO );
     if( result != paNoError )
         return result;
 
