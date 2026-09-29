@@ -70,6 +70,8 @@
         18-06-02 Added pa_asio.h, PaAsio_GetAvailableLatencyValues() : Ross B.
         21-06-02 Added SelectHostBufferSize() which selects host buffer size based on user latency parameters : Ross Bencina
         ** NOTE  maintenance history is now stored in CVS **
+
+    Adapted for cwASIO 2025 by Axel Holzinger & Stefan Heinzmann
 */
 
 /** @file
@@ -1111,6 +1113,14 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
 
     CwAsioDriverInfos *cwAsioDriverInfos = ( CwAsioDriverInfos* ) context;
 
+    /* skip entries without name or id, cwASIOenumerate() may pass NULL for them */
+    if (!name || !clsid)
+        return true;
+
+    /* stop enumerating when the table is full */
+    if (cwAsioDriverInfos->size >= sizeof(cwAsioDriverInfos->asioDriverInfos) / sizeof(cwAsioDriverInfos->asioDriverInfos[0]))
+        return false;
+
     CwAsioDriverInfo *driverInfo = &cwAsioDriverInfos->asioDriverInfos[cwAsioDriverInfos->size++];
     assert(driverInfo);
     memset( driverInfo, 0, sizeof(CwAsioDriverInfo) );
@@ -1118,8 +1128,11 @@ static bool cwAsioCallback( void *context, char const *name, char const *clsid, 
     strncpy(driverInfo->base.name, name, sizeof(driverInfo->base.name ) - 1U );
     assert( sizeof(driverInfo->clsid) > 0 );
     strncpy(driverInfo->clsid, clsid, sizeof(driverInfo->clsid) - 1U );
-    assert( sizeof(driverInfo->desc) > 0 );
-    strncpy(driverInfo->desc, desc, sizeof(driverInfo->desc) - 1U );
+    /* the description is optional, cwASIOenumerate() may pass NULL for it */
+    if (desc) {
+        assert( sizeof(driverInfo->desc) > 0 );
+        strncpy(driverInfo->desc, desc, sizeof(driverInfo->desc) - 1U );
+    }
 
     return true;
 }
