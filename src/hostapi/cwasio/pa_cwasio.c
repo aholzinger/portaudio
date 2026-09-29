@@ -4947,14 +4947,14 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     }
 
     cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[hostApiDevice];
-    result = getDriverClsid( cwAsioHostApi, cwAsioDeviceInfo->commonDeviceInfo.name, clsid, sizeof(clsid) );
+    result = getDriverClsid( cwAsioHostApi, cwAsioDeviceInfo->driverName, clsid, sizeof(clsid) );
     if (result != paNoError || *clsid == '\0')
     {
         result = paUnanticipatedHostError;
         goto error;
     }
 
-    if( cwASIOLoad( cwAsioHostApi->openAsioDriverInfo.cwAsioDriverInfo.base.name , clsid ) != ASE_OK )
+    if( cwASIOLoad( cwAsioDeviceInfo->driverName, clsid ) != ASE_OK )
     {
         result = paUnanticipatedHostError;
         goto error;
