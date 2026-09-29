@@ -3,7 +3,7 @@
 /*
  * $Id$
  * PortAudio Portable Real-Time Audio Library
- * ASIO specific extensions
+ * ASIO specific extensions (adapted for cwASIO)
  *
  * Copyright (c) 1999-2000 Ross Bencina and Phil Burk
  *
@@ -115,7 +115,7 @@ PaError PaCwAsio_GetOutputChannelName( PaDeviceIndex device, int channelIndex,
  Note that this function may fail if the stream is already running and the
  ASIO driver does not support switching the sample rate of a running stream.
 
- Returns paIncompatibleStreamHostApi if stream is not a paASIO stream.
+ Returns paIncompatibleStreamHostApi if stream is not a paCwASIO stream.
 */
 PaError PaCwAsio_SetStreamSampleRate( PaStream* stream, double sampleRate );
 
