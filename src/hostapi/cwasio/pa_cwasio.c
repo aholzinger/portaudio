@@ -313,12 +313,23 @@ static struct cwASIODriver* theAsioDriver = NULL;
 static cwASIOError cwASIOLoad(char const* driverName, char const* id) {
     if (theAsioDriver)
         return ASE_NoMemory;
-    long errorCode = cwASIOload(id, &theAsioDriver);
-    if (errorCode != 0 || driverName == NULL || theAsioDriver == NULL || theAsioDriver->lpVtbl == NULL)
+    if (driverName == NULL)
         return ASE_InvalidParameter;
+    long errorCode = cwASIOload(id, &theAsioDriver);
+    if (errorCode != 0 || theAsioDriver == NULL || theAsioDriver->lpVtbl == NULL) {
+        /* balance COM initialization done by cwASIOload(), but don't call through a bad vtable */
+        if (errorCode == 0)
+            cwASIOunload(theAsioDriver && theAsioDriver->lpVtbl ? theAsioDriver : NULL);
+        theAsioDriver = NULL;
+        return ASE_InvalidParameter;
+    }
     cwASIOError result = theAsioDriver->lpVtbl->future(theAsioDriver, kcwASIOsetInstanceName, (void*) driverName);
-    if (result == ASE_SUCCESS)
-        result = ASE_OK;
+    /* ASE_InvalidParameter means the driver has no multi-instance support, which is fine */
+    if (result == ASE_SUCCESS || result == ASE_InvalidParameter)
+        return ASE_OK;
+    /* e.g. ASE_NotPresent: no registry entry for this instance name */
+    cwASIOunload(theAsioDriver);
+    theAsioDriver = NULL;
     return result;
 }
 
