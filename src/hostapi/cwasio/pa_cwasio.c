@@ -111,6 +111,7 @@
 #include "pa_endianness.h"
 
 #ifdef _WIN32
+    #include "pa_win_coinitialize.h"
     #include "pa_win_util.h"
 #endif
 
@@ -281,6 +282,10 @@ typedef struct
     PaUtilStreamInterface blockingStreamInterface;
 
     PaUtilAllocationGroup *allocations;
+
+#ifdef _WIN32
+    PaWinUtilComInitializationResult comInitializationResult;
+#endif
 
     CwAsioDriverInfos driverInfos;
     
@@ -2080,9 +2085,22 @@ PaError PaCwAsio_Initialize( PaUtilHostApiRepresentation **hostApi, PaHostApiInd
     /* NOTE: we depend on PaUtil_AllocateZeroInitializedMemory() ensuring that all
        fields are set to zero. especially cwAsioHostApi->allocations */
 
+#ifdef _WIN32
     /*
-        COM will be handled correctly by cwASIO. No need for us to take care about this.
+        We initialize COM ourselves to operate in the same thread as the ASIO
+        driver. cwASIOload() initializes COM too, but it also uninitializes
+        it in cwASIOunload(), so without this COM would be torn down every
+        time a driver is unloaded.
+        Note that initialization of COM in non-main threads is considered
+        to be the caller's responsibility.
     */
+    result = PaWinUtil_CoInitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+    if( result != paNoError )
+    {
+        goto error;
+    }
+#endif
+
     cwAsioHostApi->allocations = PaUtil_CreateAllocationGroup();
     if( !cwAsioHostApi->allocations )
     {
@@ -2270,6 +2288,10 @@ error:
             PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
         }
 
+#ifdef _WIN32
+        PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+#endif
+
         PaUtil_FreeMemory( cwAsioHostApi );
     }
 
@@ -2291,6 +2313,10 @@ static void Terminate( struct PaUtilHostApiRepresentation *hostApi )
         PaUtil_FreeAllAllocations( cwAsioHostApi->allocations );
         PaUtil_DestroyAllocationGroup( cwAsioHostApi->allocations );
     }
+
+#ifdef _WIN32
+    PaWinUtil_CoUninitialize( paCwASIO, &cwAsioHostApi->comInitializationResult );
+#endif
 
     PaUtil_FreeMemory( cwAsioHostApi );
 }
@@ -4877,10 +4903,15 @@ PaError PaCwAsio_ShowControlPanel( PaDeviceIndex device, void* systemSpecific )
     PaCwAsioHostApiRepresentation *cwAsioHostApi;
     PaCwAsioDeviceInfo *cwAsioDeviceInfo;
     char clsid[CLSID_MAX_LENGTH]; *clsid = '\0';
+#ifdef _WIN32
+    PaWinUtilComInitializationResult comInitializationResult;
 
-    /*
-        COM will be handled correctly by cwASIO. No need for us to take care about this.
-    */
+    /* initialize COM again here, we might be in another thread */
+    result = PaWinUtil_CoInitialize( paCwASIO, &comInitializationResult );
+    if( result != paNoError )
+        return result;
+#endif
+
     result = PaUtil_GetHostApiRepresentation( &hostApi, paCwASIO );
     if( result != paNoError )
         goto error;
@@ -4970,6 +5001,10 @@ PA_DEBUG(("PaCwAsio_ShowControlPanel: cwASIOExit(): %s\n", PaCwAsio_GetAsioError
 
 PA_DEBUG(("PaAsio_ShowControlPanel: cwASIOUnload()\n" ));
 
+#ifdef _WIN32
+    PaWinUtil_CoUninitialize( paCwASIO, &comInitializationResult );
+#endif
+
     return result;
 
 error:
@@ -4981,6 +5016,10 @@ error:
     {
         cwASIOUnload();
     }
+
+#ifdef _WIN32
+    PaWinUtil_CoUninitialize( paCwASIO, &comInitializationResult );
+#endif
 
     return result;
 }
