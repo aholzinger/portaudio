@@ -288,7 +288,7 @@ typedef struct
 #endif
 
     CwAsioDriverInfos driverInfos;
-    
+
     void *systemSpecific;
 
     /* the ASIO C API only allows one ASIO driver to be open at a time,
@@ -3065,7 +3065,7 @@ static PaError OpenStream( struct PaUtilHostApiRepresentation *hostApi,
         asioDeviceIndex = outputParameters->device;
 
         PA_DEBUG(("OpenStream asioDeviceIndex = outputParameters->device = %d\n", (int)asioDeviceIndex));
-        
+
         PaCwAsioDeviceInfo * cwAsioDeviceInfo = (PaCwAsioDeviceInfo*)hostApi->deviceInfos[asioDeviceIndex];
 
         /* validate hostApiSpecificStreamInfo */
